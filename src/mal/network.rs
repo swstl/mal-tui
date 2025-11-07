@@ -30,6 +30,32 @@ fn get_agent() -> &'static Agent {
     })
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Identifier {
+    pub auth_token: Option<String>,
+    pub client_id: Option<String>,
+}
+
+impl Identifier {
+    pub fn new(auth_token: Option<String>, client_id: Option<String>) -> Self {
+        Self {
+            auth_token,
+            client_id,
+        }
+    }
+
+    pub fn to_headers(&self) -> Vec<(String, String)> {
+        let mut headers = Vec::new();
+        if let Some(token) = &self.auth_token {
+            headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
+        }
+        if let Some(client_id) = &self.client_id {
+            headers.push(("X-MAL-Client-ID".to_string(), client_id.clone()));
+        }
+        headers
+    }
+}
+
 #[cached(size = 2000, result = true)]
 pub fn fetch_image(uri: String) -> Result<image::DynamicImage, String> {
     let url = Url::parse(&uri).map_err(|e| format!("Invalid URL: {}", e))?;
@@ -70,54 +96,45 @@ pub fn fetch_image(uri: String) -> Result<image::DynamicImage, String> {
 
 #[cached(size = 2000, result = true)]
 pub fn fetch_anime(
-    token: String,
+    identifier: Identifier,
     url: String,
     parameters: Vec<(String, String)>,
 ) -> Result<AnimeResponse, Box<dyn std::error::Error>> {
-    if token.is_empty() {
-        return Err("Access token is not set".into());
-    }
     send_request::<AnimeResponse>(
-        "GET",
+        "GET", //
         url,
         parameters,
-        vec![("Authorization".to_string(), format!("Bearer {}", token))],
+        identifier.to_headers(),
         None,
     )
 }
 
 #[cached(result = true)]
 pub fn fetch_user(
-    token: String,
+    identifier: Identifier,
     url: String,
     parameters: Vec<(String, String)>,
 ) -> Result<User, Box<dyn std::error::Error>> {
-    if token.is_empty() {
-        return Err("Access token is not set".into());
-    }
     send_request::<User>(
-        "GET",
+        "GET", //
         url,
         parameters,
-        vec![("Authorization".to_string(), format!("Bearer {}", token))],
+        identifier.to_headers(),
         None,
     )
 }
 
 #[cached(result = true)]
 pub fn fetch_favorited_anime(
-    token: String,
+    identifier: Identifier,
     url: String,
     parameters: Vec<(String, String)>,
 ) -> Result<FavoriteResponse, Box<dyn std::error::Error>> {
-    if token.is_empty() {
-        return Err("Access token is not set".into());
-    }
     send_request::<FavoriteResponse>(
-        "GET",
+        "GET", //
         url,
         parameters,
-        vec![("Authorization".to_string(), format!("Bearer {}", token))],
+        identifier.to_headers(),
         None,
     )
 }
@@ -311,7 +328,7 @@ pub trait Fetchable: Sized {
     type Output;
 
     fn fetch(
-        token: String,
+        token: Identifier,
         url: String,
         parameters: Vec<(String, String)>,
     ) -> Result<Self::Response, Box<dyn std::error::Error>>;

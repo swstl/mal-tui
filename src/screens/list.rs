@@ -2,7 +2,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use crate::add_screen_caching;
+use crate::{add_screen_caching, check_for_account};
 use crate::app::Event;
 use crate::config::navigation::NavDirection;
 use crate::config::Config;
@@ -252,6 +252,7 @@ impl ListScreen {
 
 impl Screen for ListScreen {
     add_screen_caching!();
+    check_for_account!();
 
     // draws the screen
     fn draw(&mut self, frame: &mut Frame) {

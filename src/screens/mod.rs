@@ -1,4 +1,5 @@
 use crate::app::{Action, Event, ExtraInfo};
+use crate::mal::MalClient;
 use crate::mal::models::anime::AnimeId;
 use std::collections::HashMap;
 use ratatui::layout::Layout;
@@ -81,6 +82,16 @@ macro_rules! add_screen_caching {
         }
     };
 }
+#[macro_export]
+macro_rules! check_for_account {
+    () => {
+        fn needs_accound(&self) -> bool {
+            true
+        }
+    };
+}
+
+
 
 
 
@@ -139,7 +150,10 @@ pub trait Screen {
     }
     fn uses_navbar(&self) -> bool {
         true
-    } 
+    }
+    fn needs_accound(&self) -> bool {
+        false
+    }
 
     //INFO: just create a backgground function that returns a JoinHandle and the screen will have
     //background functionality. Use apply update to pass updates to the rendering thread
@@ -292,7 +306,13 @@ impl ScreenManager {
         if let Some(screen) = self.screen_storage.remove(screen_name) {
             self.current_screen = screen;
         } else {
-            self.current_screen = create_screen(screen_name, &self.passable_info);
+            let new_screen = create_screen(screen_name, &self.passable_info);
+            if new_screen.needs_accound() && !MalClient::user_is_logged_in() {
+                self.show_error("You need to be logged in to access this tab.".to_string());
+                return;
+            } else {
+                self.current_screen = new_screen;
+            }
         }
 
         self.cleanup_backgrounds();

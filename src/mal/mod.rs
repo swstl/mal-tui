@@ -3,13 +3,13 @@ pub mod network;
 mod oauth;
 
 use crate::config::Config;
-use crate::mal::network::Fetchable;
+use crate::mal::network::{Fetchable, Identifier, send_request_expect_text};
 use crate::{params, send_error};
 use chrono::{Datelike, Local};
 use models::anime::{Anime, AnimeId, FavoriteAnime, fields};
 use models::user::User;
 use network::Update;
-use oauth::{refresh_token, Identity};
+use oauth::{Identity, refresh_token};
 use regex::Regex;
 use std::any::type_name;
 use std::sync::{Arc, RwLock};
@@ -25,6 +25,7 @@ const SECONDS_IN_A_DAY: u64 = 86400;
 //TODO: encrypt the tokens
 #[derive(Debug, Clone)]
 pub struct MalClient {
+    client_id: Option<String>,
     identity: Arc<RwLock<Option<Identity>>>,
     re: Regex,
 }
@@ -32,6 +33,7 @@ pub struct MalClient {
 impl MalClient {
     pub fn new() -> Self {
         let client = Self {
+            client_id: None,
             identity: Arc::new(RwLock::new(None)),
             re: Regex::new(r"\(([0-9,]+)/([0-9,]+|Unknown)\)").unwrap(),
         };
@@ -55,13 +57,15 @@ impl MalClient {
         let expires_at = Self::time_now() + identity.expires_in;
         let data = format!(
             "mal_access_token = \"{}\"\nmal_refresh_token = \"{}\"\nmal_token_expires_at = \"{}\"",
-            identity.access_token, identity.refresh_token, expires_at 
+            identity.access_token, identity.refresh_token, expires_at
         );
 
         let client_file = mal_dir.join("client");
-        fs::write(client_file, data).map_err(|_| {
-            send_error!("Failed to write client file");
-        }).ok();
+        fs::write(client_file, data)
+            .map_err(|_| {
+                send_error!("Failed to write client file");
+            })
+            .ok();
     }
 
     pub fn time_now() -> u64 {
@@ -94,7 +98,6 @@ impl MalClient {
         if let Ok(client_file) =
             fs::read_to_string(app_dir.join(format!("{}/{}", CLIENT_FOLDER, CLIENT_FILE)))
         {
-
             let mut at = String::new();
             let mut rt = String::new();
             let mut ea = 0;
@@ -108,7 +111,11 @@ impl MalClient {
                         rt = l.split("\"").nth(1).unwrap_or("").to_string()
                     }
                     l if l.starts_with("mal_token_expires_at") => {
-                        ea = l.split("\"").nth(1).map(|s| s.parse::<u64>().unwrap_or(0)).unwrap_or(0)
+                        ea = l
+                            .split("\"")
+                            .nth(1)
+                            .map(|s| s.parse::<u64>().unwrap_or(0))
+                            .unwrap_or(0)
                     }
                     _ => {}
                 }
@@ -122,12 +129,12 @@ impl MalClient {
                     rt = identity.refresh_token;
                     ea = identity.expires_in;
                     Ok(())
-                }){
-                    Ok(_) => {},
+                }) {
+                    Ok(_) => {}
                     Err(err) => {
                         send_error!("Token expired! please login again: {}", err);
                         return false;
-                    },
+                    }
                 };
             }
 
@@ -178,15 +185,32 @@ impl MalClient {
         false
     }
 
+    pub fn fetch_client_id(&mut self) -> Option<String> {
+        if let Some(client_id) = &self.client_id {
+            return Some(client_id.clone());
+        }
+
+        let client_id = send_request_expect_text(
+            "GET",
+            format!("{}/id", Config::global().network.auth_server),
+            vec![],
+            vec![],
+            None,
+        ).ok()?;
+
+        self.client_id = Some(client_id);
+        self.client_id.clone()
+    }
+
     pub fn current_season() -> (u16, String) {
         let now = Local::now();
         let year = now.year() as u16;
         let month = now.month();
 
         let season = match month {
-            1 ..= 3 => "winter",
-            4 ..= 6 => "spring",
-            7 ..= 9 => "summer",
+            1..=3 => "winter",
+            4..=6 => "spring",
+            7..=9 => "summer",
             _ => "fall",
         };
 
@@ -309,13 +333,14 @@ impl MalClient {
     pub fn update_user_list<T: Update>(
         &self,
         element: T,
-    ) -> Result<(usize, T::Response), Box<(dyn std::error::Error + 'static)>> {
-        let token = self.identity
+    ) -> Result<(usize, T::Response), Box<dyn std::error::Error + 'static>> {
+        let token = self
+            .identity
             .read()
             .unwrap()
             .as_ref()
             .map(|id| id.access_token.clone())
-            .ok_or_else(|| send_error!("no identity/token"));
+            .ok_or_else(|| send_error!("You need to log in to use any list functions"));
 
         let token = match token {
             Ok(t) => t,
@@ -337,7 +362,7 @@ impl MalClient {
         &self,
         element: T,
     ) -> tokio::task::JoinHandle<
-        Result<(usize, T::Response), Box<(dyn std::error::Error + Send + 'static)>>,
+        Result<(usize, T::Response), Box<dyn std::error::Error + Send + 'static>>,
     >
     where
         T::Response: Send,
@@ -366,11 +391,12 @@ impl MalClient {
         );
         let mut response = ureq::get(&url).call()?;
         let html = response.body_mut().read_to_string()?;
-        if let Some(captures) = self.re.captures(&html) {
-            if let Some(available_str) = captures.get(1) {
-                let cleaned = available_str.as_str().replace(",", "");
-                return Ok(Some(cleaned.parse::<u32>()?));
-            }
+
+        if let Some(captures) = self.re.captures(&html)
+            && let Some(available_str) = captures.get(1)
+        {
+            let cleaned = available_str.as_str().replace(",", "");
+            return Ok(Some(cleaned.parse::<u32>()?));
         }
         Ok(None)
     }
@@ -379,14 +405,25 @@ impl MalClient {
     where
         T: Fetchable,
     {
-        let token = self.identity
+        let identity = self //
+            .identity
             .read()
-            .unwrap()
-            .as_ref()
-            .map(|id| id.access_token.clone())
-            .ok_or_else(|| send_error!("no identity/token")).ok()?;
+            .unwrap();
 
-        let response = T::fetch(token, url, parameters);
+        let identifier = match identity.as_ref() {
+            Some(id) => Identifier::new(
+                // user credentials
+                Some(id.access_token.clone()),
+                None,
+            ),
+            None => Identifier::new(
+                // app credentials
+                None,
+                self.client_id.clone(),
+            ),
+        };
+
+        let response = T::fetch(identifier, url, parameters);
         let response = match response {
             Ok(response) => response,
             Err(e) => {

@@ -1,7 +1,7 @@
 use super::na;
 use crate::{
     mal::{
-        network::{fetch_anime, fetch_favorited_anime, Update}, Fetchable
+        Fetchable, network::{Identifier, Update, fetch_anime, fetch_favorited_anime}
     },
     utils::{imageManager::HasDisplayableImage, store::Storable},
 };
@@ -625,11 +625,11 @@ impl Fetchable for Anime {
     type Output = Vec<Self>;
 
     fn fetch(
-        token: String,
+        identifier: Identifier,
         url: String,
         parameters: Vec<(String, String)>,
     ) -> Result<Self::Response, Box<dyn std::error::Error>> {
-        fetch_anime(token, url, parameters)
+        fetch_anime(identifier, url, parameters)
     }
 
     fn from_response(response: Self::Response) -> Self::Output {
@@ -696,11 +696,11 @@ impl Fetchable for FavoriteAnime {
     type Output = Vec<FavoriteAnime>;
 
     fn fetch(
-        token: String,
+        identifier: Identifier,
         url: String,
         parameters: Vec<(String, String)>,
     ) -> Result<Self::Response, Box<dyn std::error::Error>> {
-        fetch_favorited_anime(token, url, parameters)
+        fetch_favorited_anime(identifier, url, parameters)
     }
 
     fn from_response(response: Self::Response) -> Self::Output {

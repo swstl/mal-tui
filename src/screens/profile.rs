@@ -5,6 +5,7 @@ use std::thread::JoinHandle;
 use crate::add_screen_caching;
 use crate::app::Action;
 use crate::app::Event;
+use crate::check_for_account;
 use crate::config::navigation::NavDirection;
 use crate::config::Config;
 use crate::mal::models::anime::Anime;
@@ -70,6 +71,7 @@ impl ProfileScreen {
 
 impl Screen for ProfileScreen {
     add_screen_caching!();
+    check_for_account!();
 
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();

@@ -37,11 +37,7 @@ impl LaunchScreen {
     fn activate_button(&self, index: usize) -> Option<Action> {
         match index {
             0 => {
-                if MalClient::user_is_logged_in() {
-                    Some(Action::SwitchScreen(OVERVIEW))
-                } else {
-                    Some(Action::ShowError("Please log in to browse".to_string()))
-                }
+                Some(Action::SwitchScreen(OVERVIEW))
             }
             1 => {
                 if MalClient::user_is_logged_in() {

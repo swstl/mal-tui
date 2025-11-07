@@ -1,4 +1,4 @@
-use crate::{mal::{network::fetch_user, Fetchable}, utils::imageManager::HasDisplayableImage};
+use crate::{mal::{Fetchable, network::{Identifier, fetch_user}}, utils::imageManager::HasDisplayableImage};
 
 use serde::{Deserialize, Serialize};
 
@@ -137,11 +137,11 @@ impl Fetchable for User {
     type Output = Self;
 
     fn fetch(
-        token: String,
+        identifier: Identifier,
         url: String,
         parameters: Vec<(String, String)>,
     ) -> Result<Self::Response, Box<dyn std::error::Error>> {
-        fetch_user(token, url, parameters)
+        fetch_user(identifier, url, parameters)
     }
 
     fn from_response(response: Self::Response) -> Self::Output {

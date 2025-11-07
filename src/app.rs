@@ -124,7 +124,10 @@ impl App {
 
         errorBus::init(sx.clone());
 
-        let mal_client = Arc::new(MalClient::new());
+        let mut mal_client = MalClient::new();
+        mal_client.fetch_client_id();
+        let mal_client = Arc::new(mal_client);
+
         let universal_info = ExtraInfo {
             app_sx: sx.clone(),
             mal_client: mal_client.clone(),
