@@ -4,8 +4,8 @@ use super::widgets::popup::SeasonPopup;
 use super::{BackgroundUpdate, Screen};
 use crate::add_screen_caching;
 use crate::config::Config;
-use crate::mal::models::anime::AnimeId;
 use crate::config::navigation::NavDirection;
+use crate::mal::models::anime::AnimeId;
 use crate::{
     app::{Action, Event},
     mal::{MalClient, models::anime::Anime},
@@ -65,7 +65,7 @@ pub struct SeasonsScreen {
     navigatable: Navigatable,
 
     // render cache
-    details_area: Option<Rect>
+    details_area: Option<Rect>,
 }
 
 impl SeasonsScreen {
@@ -152,10 +152,10 @@ impl Screen for SeasonsScreen {
 
     fn draw(&mut self, frame: &mut Frame) {
         let mut anime = Anime::empty();
-        if let Some(selected_anime) = self.navigatable.get_selected_item(&self.animes) {
-            if let Some(found_anime) = self.app_info.anime_store.get(selected_anime) {
-                anime = (*found_anime).clone();
-            }
+        if let Some(selected_anime) = self.navigatable.get_selected_item(&self.animes)
+            && let Some(found_anime) = self.app_info.anime_store.get(selected_anime)
+        {
+            anime = (*found_anime).clone();
         }
 
         let area = frame.area();
@@ -464,7 +464,9 @@ impl Screen for SeasonsScreen {
     }
 
     fn handle_keyboard(&mut self, key_event: KeyEvent) -> Option<Action> {
-        let modifier = key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+        let modifier = key_event
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL);
         let nav = &Config::global().navigation;
 
         match self.focus {
@@ -476,7 +478,7 @@ impl Screen for SeasonsScreen {
             }
 
             Focus::AnimeList => {
-                if modifier { 
+                if modifier {
                     match nav.get_direction(&key_event.code) {
                         NavDirection::Up => {
                             self.focus = Focus::SeasonSelection;
@@ -486,7 +488,7 @@ impl Screen for SeasonsScreen {
                         }
                         _ => {}
                     }
-                    return None; 
+                    return None;
                 }
 
                 match nav.get_direction(&key_event.code) {
@@ -505,12 +507,11 @@ impl Screen for SeasonsScreen {
                     _ => {}
                 };
 
-                if nav.is_select(&key_event.code) {
-                    if let Some(id) = self.navigatable.get_selected_item(&self.animes) {
-                        if let Some(anime) = self.app_info.anime_store.get(id) {
-                            return Some(Action::ShowOverlay(anime.id));
-                        }
-                    }
+                if nav.is_select(&key_event.code)
+                    && let Some(id) = self.navigatable.get_selected_item(&self.animes)
+                    && let Some(anime) = self.app_info.anime_store.get(id)
+                {
+                    return Some(Action::ShowOverlay(anime.id));
                 }
 
                 self.detail_scroll_y = 0;
@@ -630,11 +631,11 @@ impl Screen for SeasonsScreen {
         }
 
         // also anime list
-        if self.navigatable.get_hovered_index(mouse_event).is_some() {
-            if let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind {
-                let anime_id = self.navigatable.get_selected_item(&self.animes)?;
-                return Some(Action::ShowOverlay(*anime_id));
-            }
+        if self.navigatable.get_hovered_index(mouse_event).is_some()
+            && let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind
+        {
+            let anime_id = self.navigatable.get_selected_item(&self.animes)?;
+            return Some(Action::ShowOverlay(*anime_id));
         }
 
         None

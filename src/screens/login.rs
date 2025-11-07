@@ -1,20 +1,25 @@
-use std::cmp::{max, min};
-use crate::{add_screen_caching, app::Event, config::{navigation::NavDirection, Config}, mal::MalClient, screens::widgets::button::Button};
-use crossterm::event::KeyEvent;
-use super::{screens::*, widgets::navigatable::Navigatable, BackgroundUpdate, ExtraInfo, Screen};
-use std::thread::JoinHandle;
+use super::{BackgroundUpdate, ExtraInfo, Screen, screens::*, widgets::navigatable::Navigatable};
 use crate::app::Action;
-use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect}, 
-    widgets::{ Block, Borders, Clear, Paragraph}, 
-    style::{Color, Modifier, Style}, 
-    Frame 
+use crate::{
+    add_screen_caching,
+    app::Event,
+    config::{Config, navigation::NavDirection},
+    mal::MalClient,
+    screens::widgets::button::Button,
 };
-
+use crossterm::event::KeyEvent;
+use ratatui::{
+    Frame,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Clear, Paragraph},
+};
+use std::cmp::{max, min};
+use std::thread::JoinHandle;
 
 //TODO: option to copy the url to clipboard
 #[derive(Clone)]
-pub struct LoginScreen { 
+pub struct LoginScreen {
     full_url: String,
     buttons: Vec<&'static str>,
     login_url: String,
@@ -25,10 +30,7 @@ pub struct LoginScreen {
 impl LoginScreen {
     pub fn new(info: ExtraInfo) -> Self {
         Self {
-            buttons: vec![
-                "Open Browser",
-                "Back",
-            ],
+            buttons: vec!["Open Browser", "Back"],
             full_url: String::new(),
             login_url: String::new(),
             app_info: info,
@@ -37,9 +39,9 @@ impl LoginScreen {
     }
 
     fn activate_button(&mut self, index: usize) -> Option<Action> {
-        match index{
-            0 => { 
-                if self.full_url.is_empty(){
+        match index {
+            0 => {
+                if self.full_url.is_empty() {
                     return None;
                 }
 
@@ -49,15 +51,13 @@ impl LoginScreen {
 
                 None
             }
-            1=> {
+            1 => {
                 if MalClient::user_is_logged_in() {
                     self.login_url.clear();
                 }
                 Some(Action::SwitchScreen(LAUNCH))
             }
-            _ => {
-                None
-            }
+            _ => None,
         }
     }
 }
@@ -71,13 +71,9 @@ impl Screen for LoginScreen {
         frame.render_widget(Clear, area);
 
         let page_chunk = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(area);
-
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(area);
 
         let header_text = vec![
             r"                                  #     %%%                                     ",
@@ -112,8 +108,8 @@ impl Screen for LoginScreen {
         ];
 
         let alpha = Paragraph::new(header_text.join("\n"))
-        .style(Style::default().fg(Color::Cyan))
-        .alignment(Alignment::Center);
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Center);
 
         frame.render_widget(alpha, page_chunk[0]);
 
@@ -121,11 +117,16 @@ impl Screen for LoginScreen {
             page_chunk[1].x + min(page_chunk[1].width / 2 - 25, page_chunk[1].width / 4),
             page_chunk[1].y + 2,
             max(page_chunk[1].width / 2, 50),
-            3);
+            3,
+        );
 
         let url_field = Paragraph::new(self.login_url.clone())
             .block(Block::default().borders(Borders::ALL))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
 
         frame.render_widget(url_field, text_field_area);
@@ -135,7 +136,7 @@ impl Screen for LoginScreen {
             .constraints([
                 Constraint::Percentage(30),
                 Constraint::Length(6),
-                Constraint::Fill(1)
+                Constraint::Fill(1),
             ])
             .split(page_chunk[1]);
 
@@ -144,13 +145,14 @@ impl Screen for LoginScreen {
             .constraints([
                 Constraint::Fill(1),
                 Constraint::Length(20),
-                Constraint::Fill(1)
+                Constraint::Fill(1),
             ])
             .split(button_area[1]);
 
-        self.navigatable.construct(&self.buttons, button_area[1], |button, area, iselected| {
-            Button::new(button).selected(iselected).render(frame, area);
-        });
+        self.navigatable
+            .construct(&self.buttons, button_area[1], |button, area, iselected| {
+                Button::new(button).selected(iselected).render(frame, area);
+            });
     }
 
     fn handle_keyboard(&mut self, key_event: KeyEvent) -> Option<Action> {
@@ -160,10 +162,8 @@ impl Screen for LoginScreen {
             NavDirection::Up => {
                 self.navigatable.move_up();
             }
-            NavDirection::Down => {
-                self.navigatable.move_down()
-            }
-            _ => {} 
+            NavDirection::Down => self.navigatable.move_down(),
+            _ => {}
         };
 
         if nav.is_select(&key_event.code) {
@@ -173,10 +173,10 @@ impl Screen for LoginScreen {
     }
 
     fn handle_mouse(&mut self, mouse_event: crossterm::event::MouseEvent) -> Option<Action> {
-        if let Some(index) = self.navigatable.get_hovered_index(mouse_event){
-            if let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind {
-                return self.activate_button(index);
-            }
+        if let Some(index) = self.navigatable.get_hovered_index(mouse_event)
+            && let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind
+        {
+            return self.activate_button(index);
         };
 
         None
@@ -190,12 +190,11 @@ impl Screen for LoginScreen {
         let login_url = self.login_url.clone();
         let id = self.get_name();
         let info = self.app_info.clone();
-        let mal_client = info.mal_client.clone(); 
+        let mal_client = info.mal_client.clone();
 
         Some(std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(100));
             {
-
                 if !login_url.is_empty() {
                     return;
                 }
@@ -204,24 +203,21 @@ impl Screen for LoginScreen {
             let (url_to_print, joinable) = MalClient::init_oauth();
 
             // the full url
-            let update = BackgroundUpdate::new(id.clone())
-                .set("full_url", url_to_print.clone());
+            let update = BackgroundUpdate::new(id.clone()).set("full_url", url_to_print.clone());
             let _ = info.app_sx.send(Event::BackgroundNotice(update));
 
             // for the printing effect
-            for i in 0..url_to_print.len()+1 {
+            for i in 0..url_to_print.len() + 1 {
                 let new_url = url_to_print[0..i].to_string();
-                let update = BackgroundUpdate::new(id.clone())
-                    .set("login_url", new_url);
+                let update = BackgroundUpdate::new(id.clone()).set("login_url", new_url);
                 let _ = info.app_sx.send(Event::BackgroundNotice(update));
                 std::thread::sleep(std::time::Duration::from_millis(8));
             }
 
-            joinable.join().unwrap();  
+            joinable.join().unwrap();
             mal_client.update_user_login();
             let new_url = "Login successful".to_string();
-            let update = BackgroundUpdate::new(id.clone())
-                .set("login_url", new_url);
+            let update = BackgroundUpdate::new(id.clone()).set("login_url", new_url);
             let _ = info.app_sx.send(Event::BackgroundNotice(update));
         }))
     }

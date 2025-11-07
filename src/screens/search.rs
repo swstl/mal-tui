@@ -4,8 +4,8 @@ use super::widgets::navigatable::Navigatable;
 use super::widgets::popup::{Arrows, SelectionPopup};
 use crate::add_screen_caching;
 use crate::app::Event;
-use crate::config::navigation::NavDirection;
 use crate::config::Config;
+use crate::config::navigation::NavDirection;
 use crate::mal::models::anime::Anime;
 use crate::mal::models::anime::AnimeId;
 use crate::utils::functionStreaming::StreamableRunner;
@@ -14,10 +14,10 @@ use crate::utils::input::Input;
 use crate::{app::Action, screens::Screen};
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Position};
 use ratatui::layout::Constraint;
 use ratatui::layout::Direction;
 use ratatui::layout::Layout;
+use ratatui::layout::{Alignment, Position};
 use ratatui::style;
 use ratatui::style::Style;
 use ratatui::symbols;
@@ -231,7 +231,9 @@ impl Screen for SearchScreen {
     }
 
     fn handle_keyboard(&mut self, key_event: KeyEvent) -> Option<Action> {
-        let modifier = key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+        let modifier = key_event
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL);
         let nav = &Config::global().navigation;
 
         match self.focus {
@@ -286,19 +288,19 @@ impl Screen for SearchScreen {
                     }
                 }
 
-                if let Some(text) = self.search_input.handle_event(key_event, false) {
-                    if !text.is_empty() {
-                        self.fetching = true;
-                        if let Some(sender) = &self.bg_sender {
-                            sender.send(LocalEvent::Search(text)).ok();
-                        }
+                if let Some(text) = self.search_input.handle_event(key_event, false)
+                    && !text.is_empty()
+                {
+                    self.fetching = true;
+                    if let Some(sender) = &self.bg_sender {
+                        sender.send(LocalEvent::Search(text)).ok();
                     }
                 }
             }
 
             Focus::AnimeList => {
                 if modifier {
-                    if nav.get_direction(&key_event.code) == NavDirection::Up{
+                    if nav.get_direction(&key_event.code) == NavDirection::Up {
                         self.focus = Focus::Search;
                     }
                     return None;
@@ -320,12 +322,11 @@ impl Screen for SearchScreen {
                     _ => {}
                 }
 
-                if nav.is_select(&key_event.code) {
-                    if let Some(anime_id) = self.navigatable.get_selected_item(&self.animes) {
-                        if let Some(anime) = self.app_info.anime_store.get(anime_id) {
-                            return Some(Action::ShowOverlay(anime.id));
-                        }
-                    }
+                if nav.is_select(&key_event.code)
+                    && let Some(anime_id) = self.navigatable.get_selected_item(&self.animes)
+                    && let Some(anime) = self.app_info.anime_store.get(anime_id)
+                {
+                    return Some(Action::ShowOverlay(anime.id));
                 }
             }
 
@@ -347,7 +348,7 @@ impl Screen for SearchScreen {
             self.focus = Focus::Filter;
 
             // if a filter is selected:
-            let mut filter= self.filter_popup.handle_mouse(mouse_event)?;
+            let mut filter = self.filter_popup.handle_mouse(mouse_event)?;
 
             self.fetching = true;
             if filter == "popularity" {
@@ -368,22 +369,20 @@ impl Screen for SearchScreen {
             }
         }
 
-
         if self.navigatable.is_hovered(mouse_event) {
             self.focus = Focus::AnimeList;
             self.navigatable.handle_scroll(mouse_event);
         }
 
-        if self.navigatable.get_hovered_index(mouse_event).is_some() {
-            if let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind  {
-                let anime_id = self.navigatable.get_selected_item(&self.animes)?;
-                return Some(Action::ShowOverlay(*anime_id));
-            }
+        if self.navigatable.get_hovered_index(mouse_event).is_some()
+            && let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind
+        {
+            let anime_id = self.navigatable.get_selected_item(&self.animes)?;
+            return Some(Action::ShowOverlay(*anime_id));
         }
 
         None
     }
-
 
     fn background(&mut self) -> Option<JoinHandle<()>> {
         if self.bg_loaded {

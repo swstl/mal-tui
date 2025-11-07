@@ -3,8 +3,11 @@ use super::{
     screens::*,
     widgets::{button::Button, navigatable::Navigatable},
 };
-use crate::{app::Action, config::{navigation::NavDirection, Config}};
 use crate::mal::MalClient;
+use crate::{
+    app::Action,
+    config::{Config, navigation::NavDirection},
+};
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
@@ -36,9 +39,7 @@ impl LaunchScreen {
 
     fn activate_button(&self, index: usize) -> Option<Action> {
         match index {
-            0 => {
-                Some(Action::SwitchScreen(OVERVIEW))
-            }
+            0 => Some(Action::SwitchScreen(OVERVIEW)),
             1 => {
                 if MalClient::user_is_logged_in() {
                     MalClient::log_out();
@@ -129,10 +130,10 @@ impl Screen for LaunchScreen {
     }
 
     fn handle_mouse(&mut self, mouse_event: MouseEvent) -> Option<Action> {
-        if let Some(index) = self.navigatable.get_hovered_index(mouse_event) {
-            if let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind {
-                return self.activate_button(index);
-            }
+        if let Some(index) = self.navigatable.get_hovered_index(mouse_event)
+            && let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind
+        {
+            return self.activate_button(index);
         };
 
         None

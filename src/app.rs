@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::handlers::get_handlers;
 use crate::mal::MalClient;
 use crate::mal::models::anime::Anime;
@@ -5,9 +6,8 @@ use crate::mal::models::anime::AnimeId;
 use crate::player;
 use crate::screens::BackgroundUpdate;
 use crate::screens::ScreenManager;
-use crate::config::Config;
-use crate::utils::store::Store;
 use crate::utils::errorBus;
+use crate::utils::store::Store;
 
 use chrono::DateTime;
 use chrono::Local;
@@ -84,10 +84,9 @@ impl std::fmt::Debug for Event {
                 .field("height", height)
                 .finish(),
             Event::BackgroundNotice(_) => f.debug_struct("BackgroundNotice").finish(),
-            Event::ImageCached(index, _) => f
-                .debug_struct("ImageCached")
-                .field("index", index)
-                .finish(),
+            Event::ImageCached(index, _) => {
+                f.debug_struct("ImageCached").field("index", index).finish()
+            }
             Event::StorageUpdate(anime_id, _) => f
                 .debug_struct("StorageUpdate")
                 .field("anime_id", anime_id)
@@ -96,7 +95,7 @@ impl std::fmt::Debug for Event {
                 .debug_struct("ShowError")
                 .field("message", message)
                 .finish(),
-            Event::Rerender => f.debug_struct("Rerender").finish(),   
+            Event::Rerender => f.debug_struct("Rerender").finish(),
             _ => f.debug_struct("OtherEvent").finish(),
         }
     }
@@ -124,16 +123,12 @@ impl App {
 
         errorBus::init(sx.clone());
 
-        let mut mal_client = MalClient::new();
-        mal_client.fetch_client_id();
-        let mal_client = Arc::new(mal_client);
-
+        let mal_client = Arc::new(MalClient::new());
         let universal_info = ExtraInfo {
             app_sx: sx.clone(),
             mal_client: mal_client.clone(),
             anime_store: Store::new(),
         };
-
 
         App {
             mal_client: mal_client.clone(),
@@ -239,7 +234,10 @@ impl App {
 
         crossterm::execute!(std::io::stderr(), DisableMouseCapture).ok();
 
-        match self.anime_player.play_episode_manually(&anime, next_episode) {
+        match self
+            .anime_player
+            .play_episode_manually(&anime, next_episode)
+        {
             Ok(details) => {
                 // update teh status to now watching
                 self.shared_info
@@ -282,13 +280,14 @@ impl App {
 
     fn handle_input(&mut self, event: crossterm::event::Event) {
         // quit the app on ctrl+c
-        if let crossterm::event::Event::Key(key_event) = event {
-            if key_event.kind == crossterm::event::KeyEventKind::Press &&
-            key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) &&
-            key_event.code == crossterm::event::KeyCode::Char('c')
-            {
-                self.is_running = false;
-            }
+        if let crossterm::event::Event::Key(key_event) = event
+            && key_event
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL)
+            && key_event.kind == crossterm::event::KeyEventKind::Press
+            && key_event.code == crossterm::event::KeyCode::Char('c')
+        {
+            self.is_running = false;
         }
 
         let result = self.screen_manager.handle_input(event);

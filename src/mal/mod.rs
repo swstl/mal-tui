@@ -25,7 +25,7 @@ const SECONDS_IN_A_DAY: u64 = 86400;
 //TODO: encrypt the tokens
 #[derive(Debug, Clone)]
 pub struct MalClient {
-    client_id: Option<String>,
+    client_id: Arc<RwLock<Option<String>>>,
     identity: Arc<RwLock<Option<Identity>>>,
     re: Regex,
 }
@@ -33,7 +33,7 @@ pub struct MalClient {
 impl MalClient {
     pub fn new() -> Self {
         let client = Self {
-            client_id: None,
+            client_id: Arc::new(RwLock::new(None)),
             identity: Arc::new(RwLock::new(None)),
             re: Regex::new(r"\(([0-9,]+)/([0-9,]+|Unknown)\)").unwrap(),
         };
@@ -185,8 +185,8 @@ impl MalClient {
         false
     }
 
-    pub fn fetch_client_id(&mut self) -> Option<String> {
-        if let Some(client_id) = &self.client_id {
+    pub fn get_client_id(&self) -> Option<String> {
+        if let Some(client_id) = &self.client_id.read().unwrap().clone() {
             return Some(client_id.clone());
         }
 
@@ -198,8 +198,11 @@ impl MalClient {
             None,
         ).ok()?;
 
-        self.client_id = Some(client_id);
-        self.client_id.clone()
+        self.client_id
+            .write()
+            .unwrap()
+            .replace(client_id.clone());
+        Some(client_id)
     }
 
     pub fn current_season() -> (u16, String) {
@@ -419,7 +422,7 @@ impl MalClient {
             None => Identifier::new(
                 // app credentials
                 None,
-                self.client_id.clone(),
+                self.get_client_id(),
             ),
         };
 

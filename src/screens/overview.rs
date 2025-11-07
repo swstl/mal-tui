@@ -7,8 +7,8 @@ use super::widgets::animebox::AnimeBox;
 use super::widgets::navigatable::Navigatable;
 use super::{BackgroundUpdate, ExtraInfo, Screen};
 use crate::app::{Action, Event};
-use crate::config::navigation::NavDirection;
 use crate::config::Config;
+use crate::config::navigation::NavDirection;
 use crate::mal::models::anime::AnimeId;
 use crate::utils::functionStreaming::StreamableRunner;
 use crate::utils::imageManager::ImageManager;
@@ -23,7 +23,6 @@ use ratatui::{
     widgets::{Block, Borders, Clear},
 };
 use tui_widgets::big_text::{BigText, PixelSize};
-
 
 #[derive(PartialEq, Clone)]
 enum Focus {
@@ -89,10 +88,7 @@ impl Screen for OverviewScreen {
 
         let [_, content] = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2), 
-                Constraint::Fill(1)
-            ])
+            .constraints([Constraint::Length(2), Constraint::Fill(1)])
             .areas(area);
 
         // this is the outer navigatable meaning it splits into the vertical thre sections
@@ -116,25 +112,28 @@ impl Screen for OverviewScreen {
                 let block = Block::default()
                     .borders(Borders::TOP)
                     .border_style(Style::default().fg(color));
-                frame.render_widget(block, area.inner(Margin {
-                    vertical: 1,
-                    horizontal: 3,
-                }));
+                frame.render_widget(
+                    block,
+                    area.inner(Margin {
+                        vertical: 1,
+                        horizontal: 3,
+                    }),
+                );
 
                 // split into title and list area (for each list section)
                 let [title_area, list_area, _] = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
-                        Constraint::Length(3), 
-                        Constraint::Fill(1), 
-                        Constraint::Length(1)
+                        Constraint::Length(3),
+                        Constraint::Fill(1),
+                        Constraint::Length(1),
                     ])
                     .areas(area.inner(Margin {
                         vertical: 0,
                         horizontal: 8,
                     }));
 
-                // add margin to the title 
+                // add margin to the title
                 let [_, title_area] = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Fill(1), Constraint::Length(3)])
@@ -147,7 +146,6 @@ impl Screen for OverviewScreen {
                     .build();
 
                 frame.render_widget(title, title_area);
-
 
                 // lett the user know nothin gis there yet if the list is empty
                 if list.items.is_empty() {
@@ -175,14 +173,16 @@ impl Screen for OverviewScreen {
                                 }),
                                 inner_highlighted && highlighted && self.focus == Focus::Content,
                             )
-                        } 
+                        }
                     },
                 );
             });
     }
 
     fn handle_keyboard(&mut self, key_event: KeyEvent) -> Option<Action> {
-        let modifier = key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+        let modifier = key_event
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL);
         let nav = &Config::global().navigation;
 
         match self.focus {
@@ -204,24 +204,27 @@ impl Screen for OverviewScreen {
                         self.navigation.move_up();
                     }
                     NavDirection::Right => {
-                        if let Some(selected) = self.navigation.get_selected_item_mut(&mut self.lists) {
+                        if let Some(selected) =
+                            self.navigation.get_selected_item_mut(&mut self.lists)
+                        {
                             selected.navigatable.move_right();
                         }
                     }
                     NavDirection::Left => {
-                        if let Some(selected) = self.navigation.get_selected_item_mut(&mut self.lists) {
+                        if let Some(selected) =
+                            self.navigation.get_selected_item_mut(&mut self.lists)
+                        {
                             selected.navigatable.move_left();
                         }
                     }
                     _ => {}
                 }
 
-                if nav.is_select(&key_event.code) {
-                    if let Some(selected) = self.navigation.get_selected_item_mut(&mut self.lists) {
-                        if let Some(anime_id) = selected.navigatable.get_selected_item(&selected.items) {
-                            return Some(Action::ShowOverlay(*anime_id));
-                        }
-                    }
+                if nav.is_select(&key_event.code)
+                    && let Some(selected) = self.navigation.get_selected_item_mut(&mut self.lists)
+                    && let Some(anime_id) = selected.navigatable.get_selected_item(&selected.items)
+                {
+                    return Some(Action::ShowOverlay(*anime_id));
                 }
             }
         }
@@ -235,14 +238,18 @@ impl Screen for OverviewScreen {
         }
 
         // this happens only when the cursor is hovering over the overview content
-        let item = self.navigation.get_hovered_item_mut(&mut self.lists, mouse_event)?;
+        let item = self
+            .navigation
+            .get_hovered_item_mut(&mut self.lists, mouse_event)?;
         self.focus = Focus::Content;
 
         // handle scrolling per list
         item.navigatable.handle_scroll(mouse_event);
 
         // retreive id of the anime being hovered when clicked
-        let anime_id = item.navigatable.get_hovered_item(&item.items, mouse_event)?;
+        let anime_id = item
+            .navigatable
+            .get_hovered_item(&item.items, mouse_event)?;
         if let crossterm::event::MouseEventKind::Down(_) = mouse_event.kind {
             return Some(Action::ShowOverlay(*anime_id));
         }
@@ -262,8 +269,7 @@ impl Screen for OverviewScreen {
         let log_file = app_dir.join("watch_history");
 
         Some(thread::spawn(move || {
-            let anime_generator = StreamableRunner::new()
-                .stop_at(1);
+            let anime_generator = StreamableRunner::new().stop_at(1);
 
             let mut cached_ids: Vec<AnimeId> = Vec::new();
 
@@ -274,13 +280,11 @@ impl Screen for OverviewScreen {
                 // retrieved in this local apply_update
 
                 // this is the users list of animes
-                for animes in anime_generator.run(|offset, limit| {
-                    info.mal_client
-                        .get_anime_list(None, offset, limit)
-                }) {
+                for animes in anime_generator
+                    .run(|offset, limit| info.mal_client.get_anime_list(None, offset, limit))
+                {
                     cached_ids.extend(animes.iter().map(|a| a.id));
-                    let update = BackgroundUpdate::new(id.clone())
-                        .set("animes", animes);
+                    let update = BackgroundUpdate::new(id.clone()).set("animes", animes);
                     info.app_sx.send(Event::BackgroundNotice(update)).ok();
                 }
 
@@ -297,7 +301,15 @@ impl Screen for OverviewScreen {
                     }
 
                     // idk what to do with this inforamiton yet but here it is.
-                    let (_timestamp, anime_id, _title, _episode, _watched_time, _percentage, _completed) = (
+                    let (
+                        _timestamp,
+                        anime_id,
+                        _title,
+                        _episode,
+                        _watched_time,
+                        _percentage,
+                        _completed,
+                    ) = (
                         parts[0].to_string(),
                         parts[1].parse::<AnimeId>().expect("Failed to read history"),
                         parts[2].to_string(),
@@ -316,21 +328,18 @@ impl Screen for OverviewScreen {
                 }
 
                 let animes: Vec<AnimeId> = animes.into_iter().collect();
-                let update = BackgroundUpdate::new(id.clone())
-                    .set("WatchHistory", animes);
+                let update = BackgroundUpdate::new(id.clone()).set("WatchHistory", animes);
                 sender.send(Event::BackgroundNotice(update)).ok();
 
                 if already_loaded {
                     return;
                 }
-
             }
 
             // this is the suggested animes
-            for animes in anime_generator.run(|offset, limit| {
-                info.mal_client
-                    .get_suggested_anime(offset, limit)
-            }) {
+            for animes in anime_generator
+                .run(|offset, limit| info.mal_client.get_suggested_anime(offset, limit))
+            {
                 let anime_ids = animes.iter().map(|a| a.id).collect::<Vec<_>>();
                 let update = BackgroundUpdate::new(id.clone())
                     .set("animes", animes)

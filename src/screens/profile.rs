@@ -6,8 +6,8 @@ use crate::add_screen_caching;
 use crate::app::Action;
 use crate::app::Event;
 use crate::check_for_account;
-use crate::config::navigation::NavDirection;
 use crate::config::Config;
+use crate::config::navigation::NavDirection;
 use crate::mal::models::anime::Anime;
 use crate::mal::models::anime::FavoriteAnime;
 use crate::mal::models::user::User;
@@ -126,7 +126,9 @@ impl Screen for ProfileScreen {
                         Block::default()
                             .border_set(symbols::border::ROUNDED)
                             .borders(Borders::ALL)
-                            .border_style(style::Style::default().fg(Config::global().theme.highlight)),
+                            .border_style(
+                                style::Style::default().fg(Config::global().theme.highlight),
+                            ),
                         area,
                     );
                 }
@@ -197,10 +199,10 @@ impl Screen for ProfileScreen {
         // anime watch percentages
         if self.user.anime_statistics.num_items == 0 {
             let area = Rect::new(
-                right_top.x, 
+                right_top.x,
                 right_top.y + right_top.height / 2,
                 right_top.width,
-                1
+                1,
             );
             let no_data_text =
                 Paragraph::new("No animes watched yet!").alignment(Alignment::Center);
@@ -307,7 +309,9 @@ impl Screen for ProfileScreen {
     // handle inut function
     // for this spcific screen bro
     fn handle_keyboard(&mut self, key_event: KeyEvent) -> Option<Action> {
-        let modifier = key_event.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+        let modifier = key_event
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL);
         let nav = &Config::global().navigation;
 
         match self.focus {
@@ -315,8 +319,7 @@ impl Screen for ProfileScreen {
                 self.focus = Focus::Content;
             }
             Focus::Content => {
-                if modifier &&
-                nav.get_direction(&key_event.code) == NavDirection::Up {
+                if modifier && nav.get_direction(&key_event.code) == NavDirection::Up {
                     self.focus = Focus::NavBar;
                     return Some(Action::NavbarSelect(true));
                 }
@@ -337,13 +340,12 @@ impl Screen for ProfileScreen {
                     _ => {}
                 }
 
-                if nav.is_select(&key_event.code) {
-                    if let Some(anime) = self
+                if nav.is_select(&key_event.code)
+                    && let Some(anime) = self
                         .navigation_fav
                         .get_selected_item_mut(&mut self.user.favorited_animes)
-                    {
-                        return Some(Action::ShowOverlay(anime.id));
-                    }
+                {
+                    return Some(Action::ShowOverlay(anime.id));
                 }
             }
         }
