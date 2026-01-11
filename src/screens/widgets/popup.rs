@@ -1777,6 +1777,40 @@ impl ErrorPopup {
     }
 }
 
+#[derive(Clone)]
+pub struct SyncPopup {
+    pub toggled: bool,
+    pub syncing: bool,
+    pub animes_to_sync: Vec<Anime>,
+}
+
+impl SyncPopup {
+    pub fn new() -> Self {
+        Self {
+            toggled: false,
+            syncing: false,
+            animes_to_sync: Vec::new(),
+        }
+    }
+
+    pub fn open(&mut self) -> &Self {
+        self.toggled = true;
+        self
+    }
+
+    pub fn close(&mut self) -> &Self {
+        self.toggled = false;
+        self
+    }
+
+    pub fn set_animes(&mut self, animes: Vec<Anime>) -> &Self {
+        self.animes_to_sync = animes;
+        self
+    }
+
+    // TODO: render this
+}
+
 // #[derive(Clone)]
 // pub struct SearchPopup {
 //     pub toggled: bool,

@@ -32,6 +32,7 @@ pub fn anime_status_from_api(s: String) -> String {
 /// Converts user watch status from API format to internal format
 pub fn watch_status_from_api(s: String) -> String {
     match s.as_str() {
+        "add_to_list" => "".to_string(),
         "on_hold" => "on hold".to_string(),
         "plan_to_watch" => "plan to watch".to_string(),
         _ => s,

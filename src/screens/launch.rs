@@ -1,9 +1,11 @@
+use std::{collections::{HashMap, HashSet}, thread::JoinHandle};
+
 use super::{
     ExtraInfo, Screen,
     screens::*,
     widgets::{button::Button, navigatable::Navigatable},
 };
-use crate::mal::MalClient;
+use crate::{app::Event, mal::{MalClient, models::anime::Anime}, screens::BackgroundUpdate, utils::functionStreaming::StreamableRunner};
 use crate::{
     app::Action,
     config::{Config, navigation::NavDirection},
@@ -19,10 +21,11 @@ use ratatui::{
 pub struct LaunchScreen {
     buttons: Vec<&'static str>,
     navigatable: Navigatable,
+    app_info: ExtraInfo,
 }
 
 impl LaunchScreen {
-    pub fn new(_: ExtraInfo) -> Self {
+    pub fn new(app_info: ExtraInfo) -> Self {
         Self {
             buttons: vec![
                 "Browse",
@@ -34,6 +37,7 @@ impl LaunchScreen {
                 "Exit",
             ],
             navigatable: Navigatable::new((3, 1)),
+            app_info,
         }
     }
 
@@ -141,5 +145,63 @@ impl Screen for LaunchScreen {
 
     fn uses_navbar(&self) -> bool {
         false
+    }
+
+    fn background(&mut self) -> Option<JoinHandle<()>> {
+
+        let info = self.app_info.clone();
+        let id = self.get_name();
+
+        Some(std::thread::spawn(move || {
+            ////////////////////////////////////////
+            //////// Sync local db with MAL ////////
+            ////////////////////////////////////////
+            let mut animes_to_sync: Vec<Anime> = vec![];
+            let local_animes = info.local_db.get::<Anime>(None).unwrap_or_default();
+            let local_lookup: HashMap<_, _> = local_animes
+                .iter()
+                .map(|a| (a.id, a))
+                .collect();
+
+            let mut checked_ids = HashSet::new();
+
+            let anime_generator = StreamableRunner::new()
+                .with_batch_size(1000)
+                .stop_early()
+                .stop_at(20);
+
+            for animes in anime_generator
+                .run(|offset, limit| info.mal_client.get_anime_list(None, offset, limit))
+            {
+                for anime in animes.iter() {
+                    checked_ids.insert(anime.id);
+
+                    match local_lookup.get(&anime.id) {
+                        Some(&local_anime) => {
+                            if anime.my_list_status.status != local_anime.my_list_status.status
+                                || anime.my_list_status.score != local_anime.my_list_status.score
+                                || anime.my_list_status.num_episodes_watched != local_anime.my_list_status.num_episodes_watched
+                            {
+                                animes_to_sync.push(local_anime.clone());
+                            }
+                        }
+                        None => animes_to_sync.push(anime.clone()),
+                    }
+                }
+                let update = BackgroundUpdate::new(id.clone())
+                    .set("animes", animes);
+                info.app_sx.send(Event::BackgroundNotice(update)).ok();
+            }
+
+            for local_anime in local_animes.iter() {
+                if !checked_ids.contains(&local_anime.id) {
+                    animes_to_sync.push(local_anime.clone());
+                }
+            }
+
+            let update = BackgroundUpdate::new(id.clone())
+                .set("sync", animes_to_sync);
+            info.app_sx.send(Event::BackgroundNotice(update)).ok();
+        }))
     }
 }

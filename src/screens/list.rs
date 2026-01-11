@@ -10,8 +10,9 @@ use crate::mal::models::anime::{Anime, AnimeId};
 use crate::utils::functionStreaming::StreamableRunner;
 use crate::utils::imageManager::ImageManager;
 use crate::utils::input::Input;
-use crate::{add_screen_caching, check_for_account};
+use crate::add_screen_caching;
 use crate::{app::Action, screens::Screen};
+use crate::mal::models::anime::status_is_known;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -592,15 +593,31 @@ impl Screen for ListScreen {
     }
 
     fn background(&mut self) -> Option<JoinHandle<()>> {
+        // let store_animes = self.app_info.anime_store.get_list();
+        // let new_ids: Vec<AnimeId> = store_animes
+        //     .iter()
+        //     .filter(|anime| {
+        //         !self.all_animes.contains(&anime.id)
+        //             && status_is_known(anime.my_list_status.status.clone())
+        //     })
+        //     .map(|anime| anime.id)
+        //     .collect();
+        //
+        // if !new_ids.is_empty() {
+        //     self.all_animes.extend(new_ids);
+        //     self.filtered_animes = self.all_animes.clone();
+        // }
+
         if self.bg_loaded {
             return None;
         }
-        self.bg_loaded = true;
-
         let info = self.app_info.clone();
         let id = self.get_name();
         let (sx, rx) = channel::<LocalEvent>();
+
         self.bg_sx = Some(sx);
+        self.bg_loaded = true;
+
         ImageManager::init_with_threads(&self.image_manager, info.app_sx.clone());
         Some(std::thread::spawn(move || {
             /////////////////////////////////////
@@ -613,7 +630,12 @@ impl Screen for ListScreen {
             ///////////////////////////////////////
             if !MalClient::user_is_logged_in() {
                 let local_animes = info.local_db.get::<Anime>(None).unwrap_or_default();
-                let anime_ids = local_animes.iter().map(|a| a.id).collect::<Vec<_>>();
+                let list_animes = local_animes
+                    .iter()
+                    .filter(|anime| status_is_known(anime.my_list_status.status.clone()))
+                    .cloned()
+                    .collect::<Vec<Anime>>();
+                let anime_ids = list_animes.iter().map(|a| a.id).collect::<Vec<_>>();
                 let update = BackgroundUpdate::new(id.clone())
                     .set("animes", local_animes)
                     .set("anime_ids", anime_ids)

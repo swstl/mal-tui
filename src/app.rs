@@ -179,6 +179,9 @@ impl App {
                         if let Some(animes) = update.take::<Vec<Anime>>("animes") {
                             self.shared_info.anime_store.add_bulk(animes);
                         }
+                        if let Some(sync_animes) = update.take::<Vec<Anime>>("sync") {
+                            self.screen_manager.interactive_sync(sync_animes);
+                        }
 
                         self.screen_manager.update_screen(update);
                     }

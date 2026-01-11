@@ -1,6 +1,6 @@
 use crate::app::{Action, Event, ExtraInfo};
 use crate::mal::MalClient;
-use crate::mal::models::anime::AnimeId;
+use crate::mal::models::anime::{Anime, AnimeId};
 use std::collections::HashMap;
 use ratatui::layout::Layout;
 use std::thread::JoinHandle;
@@ -171,6 +171,7 @@ pub struct ScreenManager {
     screen_storage: HashMap<String, Box<dyn Screen>>,
     backgrounds: Vec<JoinHandle<()>>,
     passable_info: ExtraInfo,
+    syncing_popup: popup::SyncPopup,
 }
 
 #[allow(dead_code)]
@@ -191,6 +192,7 @@ impl ScreenManager {
             screen_storage: HashMap::new(),
             backgrounds: Vec::new(),
             passable_info,
+            syncing_popup: popup::SyncPopup::new(),
         }
     }
 
@@ -230,6 +232,11 @@ impl ScreenManager {
     pub fn show_error(&mut self, error: String) {
         self.error_overlay.set_error(error);
         self.error_overlay.open();
+    }
+
+    pub fn interactive_sync(&mut self, anime: Vec<Anime>) {
+        self.syncing_popup.set_animes(anime);
+        self.syncing_popup.open();
     }
 
     pub fn handle_input(&mut self, event: crossterm::event::Event) -> Option<Action> {
