@@ -2,7 +2,9 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+};
 // Assuming these imports exist based on your provided code
 use crate::{
     app::{Action, ExtraInfo},
@@ -13,12 +15,19 @@ use crate::{
 };
 use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FocusedElement {
+    SyncButtons,
+    BatchButton
+}
+
 #[derive(Clone)]
 pub struct SyncPopup {
     toggled: bool,
     syncing: bool,
     animes_to_sync: Vec<Anime>,
     info: ExtraInfo,
+    focus: FocusedElement,
 
     // UI Components
     buttons: Vec<String>,
@@ -47,6 +56,7 @@ impl SyncPopup {
             image_manager,
             info,
             all_selected: false,
+            focus: FocusedElement::SyncButtons,
         }
     }
 
@@ -55,6 +65,20 @@ impl SyncPopup {
             self.toggled = true;
         }
         self
+    }
+
+    fn change_button_lables(&mut self) {
+        if self.all_selected {
+            self.buttons = vec![
+                "Sync to MAL (all)".to_string(),
+                "Remove local changes (all)".to_string(),
+            ];
+        } else {
+            self.buttons = vec![
+                "Sync to MAL".to_string(),
+                "Remove local changes".to_string(),
+            ];
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -85,33 +109,50 @@ impl SyncPopup {
             return None;
         }
 
-        self.animes_to_sync.remove(0);
-
         let nav_config = &Config::global().navigation;
 
-        // Navigation
-        match nav_config.get_direction(&key_event.code) {
-            NavDirection::Left => self.nav.move_left(),
-            NavDirection::Right => self.nav.move_right(),
-            _ => {}
-        }
+        match self.focus{
+            FocusedElement::BatchButton => {
+                if nav_config.get_direction(&key_event.code) == NavDirection::Down {
+                    self.focus = FocusedElement::SyncButtons;
+                }
 
-        // Selection
-        if nav_config.is_select(&key_event.code)
-            && let Some(anime) = self.current_anime().cloned()
-        {
-            match self.nav.get_selected_index() {
-                0 => return Some(Action::SyncAnime(anime)),
-                1 => return Some(Action::DiscardAnime(anime)),
-                _ => {}
+                if nav_config.is_select(&key_event.code) {
+                    self.all_selected = !self.all_selected;
+                    self.change_button_lables();
+                }
+            },
+
+            FocusedElement::SyncButtons => {
+                // Navigation
+                match nav_config.get_direction(&key_event.code) {
+                    NavDirection::Left => self.nav.move_left(),
+                    NavDirection::Right => self.nav.move_right(),
+                    NavDirection::Up => {
+                        self.focus = FocusedElement::BatchButton;
+                    }
+                    _ => {}
+                }
+
+                // Selection
+                if nav_config.is_select(&key_event.code)
+                    && let Some(anime) = self.current_anime().cloned()
+                {
+                    match self.nav.get_selected_index() {
+                        0 => return Some(Action::SyncAnime(anime)),
+                        1 => return Some(Action::DiscardAnime(anime)),
+                        _ => {}
+                    }
+                }
+
+                // Close
+                if nav_config.is_close(&key_event.code) {
+                    self.close();
+                }
             }
-
         }
 
-        // Close
-        if nav_config.is_close(&key_event.code) {
-            self.close();
-        }
+        self.animes_to_sync.remove(0);
 
         None
     }
@@ -143,7 +184,6 @@ impl SyncPopup {
             return;
         }
 
-
         // If no animes left to sync, close automatically
         let anime = match self.current_anime() {
             Some(a) => a,
@@ -152,12 +192,12 @@ impl SyncPopup {
                 return;
             }
         };
-        let mal_anime = self.info.anime_store.get(&anime.id).expect("Anime must exist in MAL store"); 
+        let mal_anime = self.info.anime_store.get(&anime.id);
 
         let area = frame.area();
 
         // Increase width slightly to accommodate two columns side-by-side
-        let width = std::cmp::min(area.width * 80 / 100, 100); 
+        let width = std::cmp::min(area.width * 80 / 100, 100);
         let height = std::cmp::min(area.height * 60 / 100, 25);
 
         let popup_area = Rect::new(
@@ -215,85 +255,83 @@ impl SyncPopup {
 
         let [title_area, text_area] = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(0),
-            ])
+            .constraints([Constraint::Length(3), Constraint::Min(0)])
             .areas(text_area);
+
+        let [title_area, all_btn_area, _] = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Fill(1), Constraint::Length(10), Constraint::Length(1)])
+            .areas(title_area);
 
         let [conflict_location, text_area] = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2),
-                Constraint::Min(0),
-            ])
+            .constraints([Constraint::Length(2), Constraint::Min(0)])
             .areas(text_area);
 
         let [local_conflict_area, remote_conflict_area] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(conflict_location);
 
         let [local_text_area, remote_text_area] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .areas(text_area);
 
-        let title_text = vec![
-            Line::from(vec![
-                Span::styled(
-                    "Anime: ",
-                    Style::default().fg(Config::global().theme.secondary),
-                ),
-                Span::raw(title).bold(),
-            ]),
-        ];
+        let title_text = vec![Line::from(vec![
+            Span::styled(
+                "Anime: ",
+                Style::default().fg(Config::global().theme.secondary),
+            ),
+            Span::raw(title).bold(),
+        ])];
 
-        let conflict_local_text = vec![
-            Line::from(vec![
-                Span::styled(
-                    "Local save:",
-                    Style::default().fg(Config::global().theme.highlight),
-                ),
-            ]),
-        ];
+        let conflict_local_text = vec![Line::from(vec![Span::styled(
+            "Local save:",
+            Style::default().fg(Config::global().theme.highlight),
+        )])];
 
-        let conflict_remote_text = vec![
-            Line::from(vec![
-                Span::styled(
-                    "MAL save:",
-                    Style::default().fg(Config::global().theme.highlight),
-                ),
-            ]),
-        ];
+        let conflict_remote_text = vec![Line::from(vec![Span::styled(
+            "MAL save:",
+            Style::default().fg(Config::global().theme.highlight),
+        )])];
+
+        let theme = Config::global().theme.clone();
+
+        let status_color = mal_anime
+            .as_ref()
+            .filter(|remote| anime.my_list_status.status != remote.my_list_status.status)
+            .map(|_| theme.error)
+            .unwrap_or(theme.primary);
+
+        let score_color = mal_anime
+            .as_ref()
+            .filter(|remote| anime.my_list_status.score != remote.my_list_status.score)
+            .map(|_| theme.error)
+            .unwrap_or(theme.primary);
+
+        let watched_color = mal_anime
+            .as_ref()
+            .filter(|remote| {
+                anime.my_list_status.num_episodes_watched
+                    != remote.my_list_status.num_episodes_watched
+            })
+            .map(|_| theme.error)
+            .unwrap_or(theme.primary);
 
         let local_info_text = vec![
             Line::from(vec![
                 Span::raw("Status: "),
                 Span::styled(
                     anime.my_list_status.status.to_string(),
-                    Style::default().fg(if anime.my_list_status.status != mal_anime.my_list_status.status {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    }),
+                    Style::default().fg(status_color),
                 ),
             ]),
             Line::from(vec![
                 Span::raw("Score: "),
                 Span::styled(
                     anime.my_list_status.score.to_string(),
-                    Style::default().fg(if anime.my_list_status.score != mal_anime.my_list_status.score {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    }),
+                    Style::default().fg(score_color),
                 ),
             ]),
             Line::from(vec![
@@ -303,53 +341,62 @@ impl SyncPopup {
                         "{}/{}",
                         anime.my_list_status.num_episodes_watched, anime.num_episodes
                     ),
-                    Style::default().fg(if anime.my_list_status.num_episodes_watched != mal_anime.my_list_status.num_episodes_watched {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    })
+                    Style::default().fg(watched_color),
                 ),
             ]),
         ];
 
-        let remote_info_text = vec![
-            Line::from(vec![
-                Span::raw("Status: "),
-                Span::styled(
-                    mal_anime.my_list_status.status.to_string(),
-                    Style::default().fg(if anime.my_list_status.status != mal_anime.my_list_status.status {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    }),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw("Score: "),
-                Span::styled(
-                    mal_anime.my_list_status.score.to_string(),
-                    Style::default().fg(if anime.my_list_status.score != mal_anime.my_list_status.score {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    }),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw("Watched: "),
-                Span::styled(
-                    format!(
-                        "{}/{}",
-                        mal_anime.my_list_status.num_episodes_watched, mal_anime.num_episodes
-                    ),
-                    Style::default().fg(if anime.my_list_status.num_episodes_watched != mal_anime.my_list_status.num_episodes_watched {
-                        Config::global().theme.error
-                    } else {
-                        Config::global().theme.primary
-                    })
-                ),
-            ]),
-        ];
+        if mal_anime.is_none() {
+            // No remote info available
+            let no_remote_info = vec![Line::from(vec![Span::styled(
+                "Not added to list.",
+                Style::default().fg(Config::global().theme.error),
+            )])];
+
+            let remote_paragraph = Paragraph::new(no_remote_info)
+                .wrap(Wrap { trim: true })
+                .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
+            frame.render_widget(remote_paragraph, remote_text_area);
+        } else {
+            let remote_info_text = match mal_anime.as_ref() {
+                None => vec![Line::from(vec![Span::styled(
+                    "Not added to list.",
+                    Style::default().fg(Config::global().theme.error),
+                )])],
+                Some(remote) => vec![
+                    Line::from(vec![
+                        Span::raw("Status: "),
+                        Span::styled(
+                            remote.my_list_status.status.to_string(),
+                            Style::default().fg(status_color),
+                        ),
+                    ]),
+                    Line::from(vec![
+                        Span::raw("Score: "),
+                        Span::styled(
+                            remote.my_list_status.score.to_string(),
+                            Style::default().fg(score_color),
+                        ),
+                    ]),
+                    Line::from(vec![
+                        Span::raw("Watched: "),
+                        Span::styled(
+                            format!(
+                                "{}/{}",
+                                remote.my_list_status.num_episodes_watched, remote.num_episodes
+                            ),
+                            Style::default().fg(watched_color),
+                        ),
+                    ]),
+                ],
+            };
+
+            let remote_paragraph = Paragraph::new(remote_info_text)
+                .wrap(Wrap { trim: true })
+                .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
+
+            frame.render_widget(remote_paragraph, remote_text_area);
+        }
 
         let title_paragraph = Paragraph::new(title_text)
             .alignment(Alignment::Left)
@@ -371,14 +418,24 @@ impl SyncPopup {
             .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
         frame.render_widget(local_paragraph, local_text_area);
 
-        let remote_paragraph = Paragraph::new(remote_info_text)
-            .wrap(Wrap { trim: true })
-            .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
-        frame.render_widget(remote_paragraph, remote_text_area);
-
         // 3. Render Buttons
         // We want the buttons centered or spread out.
         // Let's use the Navigatable construct logic you already have.
+        let all_btn = if self.all_selected { "plural" } else { "single" };
+        let all_btn = Paragraph::new(all_btn)
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_set(ratatui::symbols::border::ROUNDED)
+                    .style(Style::default().fg(if self.focus == FocusedElement::BatchButton {
+                        Config::global().theme.highlight
+                    } else {
+                        Config::global().theme.primary
+                    })),
+            );
+        frame.render_widget(all_btn, all_btn_area);
+
         let buttons_rect = Rect::new(
             button_row.x + 1,
             button_row.y,
@@ -391,9 +448,8 @@ impl SyncPopup {
             &self.buttons,
             buttons_rect,
             |button_label, area, highlighted| {
-                let style = if highlighted {
-                    Style::default()
-                        .fg(Config::global().theme.highlight)
+                let style = if highlighted && self.focus == FocusedElement::SyncButtons {
+                    Style::default().fg(Config::global().theme.highlight)
                 } else {
                     Style::default().fg(Config::global().theme.primary)
                 };
