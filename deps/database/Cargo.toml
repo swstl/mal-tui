@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-core = { path = "./core" }
+database-core = { path = "./core" }
 entry = { path = "./entry" }
 rusqlite = "0.37"
 
