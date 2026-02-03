@@ -8,6 +8,7 @@ use rusqlite::Row;
 pub trait Entryable: Sized {
     fn table_name() -> &'static str;
     fn p_key(&self) -> usize;
+    fn p_key_column() -> &'static str { "id" }  // Default to "id"
     fn schema() -> &'static str;
     fn bind_values(&self) -> Vec<(&'static str, rusqlite::types::Value)>;
     fn from_row(row: &Row) -> Result<Self, Error>;
@@ -122,7 +123,7 @@ impl DatabaseManager {
     pub fn delete<T: Entryable>(&self, obj: &T) -> Result<(), Error> {
         let connection = self.connection.lock().unwrap();
         let table_name = T::table_name();
-        let condition = format!("id = {}", obj.p_key());
+        let condition = format!("{} = {}", T::p_key_column(), obj.p_key());
         let query = format!(
             "DELETE FROM {} WHERE {}",
             table_name,

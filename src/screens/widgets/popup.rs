@@ -175,7 +175,7 @@ impl AnimePopup {
             };
         }
 
-        if let Some(index) = update.take::<usize>("failure")
+        if let Some((index, _err)) = update.take::<(usize, String)>("failure")
             && let Some(button) = self
                 .status_nav
                 .get_item_at_index_mut(&mut self.status_buttons, index)

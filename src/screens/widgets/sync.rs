@@ -338,7 +338,7 @@ impl SyncPopup {
         let already_removed = self
             .finished_processing
             .iter()
-            .filter(|(sync, _)| *sync)
+            .filter(|(sync, _)| !*sync)
             .count();
 
         let total = self.to_be_processed.len();

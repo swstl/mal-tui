@@ -56,7 +56,7 @@ pub enum CurrentInfo {
 // these are sent over the channel at any time
 #[allow(dead_code)]
 pub enum Event {
-    SyncStatus(bool, Box<Anime>),
+    SyncStatus(bool, bool, Box<Anime>),
     Input(crossterm::event::Event),
     KeyPress(crossterm::event::KeyEvent),
     MouseClick(crossterm::event::MouseEvent),
@@ -199,9 +199,14 @@ impl App {
                     Event::ShowError(message) => {
                         self.screen_manager.show_error(message);
                     }
-                    Event::SyncStatus(success, anime ) => {
+                    Event::SyncStatus(success, sync, anime ) => {
                         if success {
-                            self.screen_manager.syncing_popup.finished_syncing(*anime);
+                            if sync {
+                                self.screen_manager.syncing_popup.finished_syncing(*anime);
+                            }
+                            else{
+                                self.screen_manager.syncing_popup.finished_deleting(*anime);
+                            }
                         }
                         else {
                             self.screen_manager.show_error(format!("Failed to sync {}", anime.title));
@@ -341,10 +346,10 @@ impl App {
                             if sync {
                                 let result = client.update_user_list_async(anime.clone()).await;
                                 let success = result.map(|r| r.is_ok()).unwrap_or(false);
-                                let _ = tx.send(Event::SyncStatus(success, Box::new(anime)));
+                                let _ = tx.send(Event::SyncStatus(success, true,  Box::new(anime)));
                             } else {
                                 let success = local_db.delete(&anime).is_ok();
-                                let _ = tx.send(Event::SyncStatus(success, Box::new(anime)));
+                                let _ = tx.send(Event::SyncStatus(success, false, Box::new(anime)));
                             }
                         }
                     });
