@@ -179,7 +179,7 @@ pub struct ScreenManager {
 impl ScreenManager {
     pub fn new(passable_info: ExtraInfo) -> Self {
 
-        Self {
+        let mut manager = Self {
             // default screen is the launch screen
             navbar: navbar::NavBar::new()
                 .add_screen(OVERVIEW)
@@ -194,7 +194,10 @@ impl ScreenManager {
             backgrounds: Vec::new(),
             syncing_popup: sync::SyncPopup::new(passable_info.clone()),
             passable_info,
-        }
+        };
+
+        manager.spawn_background();
+        manager
     }
 
     pub fn render_screen(&mut self, frame: &mut Frame) {

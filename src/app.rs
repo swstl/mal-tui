@@ -59,6 +59,7 @@ pub enum CurrentInfo {
 // these are sent over the channel at any time
 #[allow(dead_code)]
 pub enum Event {
+    SyncStatus(bool, AnimeId),
     Input(crossterm::event::Event),
     KeyPress(crossterm::event::KeyEvent),
     MouseClick(crossterm::event::MouseEvent),
@@ -325,16 +326,16 @@ impl App {
                     self.screen_manager.show_error(message);
                 }
                 Action::SyncAnime(anime) => {
-                    // handled in background threads
-                    match self.shared_info
-                        .mal_client
-                        .update_user_list(anime){
-                        Ok(_) => {},
-                        Err(e) => {
-                            self.screen_manager.show_error(format!("failed to sync local anime: {}", e));
-                        }
-                    }
-                    self.screen_manager.syncing_popup.next();
+
+                    let tx = self.sx.clone();
+                    let anime_id = anime.id;
+                    let handle = self.shared_info.mal_client.update_user_list_async(anime);
+
+                    // update syncing status when finished
+                    tokio::spawn(async move {
+                        let success = handle.await.map(|r| r.is_ok()).unwrap_or(false);
+                        let _ = tx.send(Event::SyncStatus(success, anime_id));
+                    });
                 }
                 Action::DiscardAnime(anime) => {
                     // handled in background threads
