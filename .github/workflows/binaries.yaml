@@ -35,13 +35,6 @@ jobs:
               cp target/release/mal-tui mal-tui-linux-x86_64
             "
 
-      - name: Create release
-        uses: softprops/action-gh-release@v3.0.0
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          files: mal-tui-linux-x86_64
-
       - name: Build .deb and update apt repo
         run: |
           VERSION=${{ steps.version.outputs.version }}
@@ -57,6 +50,15 @@ jobs:
           dpkg-scanpackages pool > dists/stable/main/binary-amd64/Packages
           gzip -k -f dists/stable/main/binary-amd64/Packages
           printf 'Origin: mal-tui\nLabel: mal-tui\nSuite: stable\nCodename: stable\nArchitectures: amd64\nComponents: main\nDescription: mal-tui apt repository\n' > dists/stable/Release
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: |
+            mal-tui-linux-x86_64
+            server/apt/pool/mal-tui_${{ steps.version.outputs.version }}_amd64.deb
 
       - name: Commit apt repo changes
         run: |
