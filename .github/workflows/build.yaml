@@ -4,6 +4,10 @@ on:
     branches: ['main']
     paths:
       - 'server/**'
+  workflow_run:
+    workflows: ['Build and Release']
+    types: [completed]
+    branches: ['main']
 env:
   REGISTRY: docker.io
   IMAGE_NAME: dogfetus/mal-cli 
