@@ -42,6 +42,44 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           files: mal-tui-linux-x86_64
 
+      - name: Build .deb and update apt repo
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          apt-get install -y dpkg-dev
+
+          mkdir -p deb-pkg/usr/bin deb-pkg/DEBIAN
+          cp mal-tui-linux-x86_64 deb-pkg/usr/bin/mal-tui
+          chmod +x deb-pkg/usr/bin/mal-tui
+          cat > deb-pkg/DEBIAN/control << EOF
+          Package: mal-tui
+          Version: $VERSION
+          Architecture: amd64
+          Maintainer: swstl <swstl@hotmail.com>
+          Description: A terminal client for MyAnimeList
+          EOF
+          dpkg-deb --build --root-owner-group deb-pkg server/apt/pool/mal-tui_${VERSION}_amd64.deb
+
+          cd server/apt
+          dpkg-scanpackages pool > dists/stable/main/binary-amd64/Packages
+          gzip -k -f dists/stable/main/binary-amd64/Packages
+          cat > dists/stable/Release << EOF
+          Origin: mal-tui
+          Label: mal-tui
+          Suite: stable
+          Codename: stable
+          Architectures: amd64
+          Components: main
+          Description: mal-tui apt repository
+          EOF
+
+      - name: Commit apt repo changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add server/apt/
+          git commit -m "update apt repo to v${{ steps.version.outputs.version }}"
+          git push
+
   update-aur:
     needs: build
     runs-on: ubuntu-22.04

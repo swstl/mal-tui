@@ -375,7 +375,15 @@ fn main() {
                 rouille::Response::html(html).with_status_code(status_code)
             },
 
-            _ => rouille::Response::text("Nothing here...").with_status_code(404)
+            _ => {
+                if request.url().starts_with("/apt") {
+                    let response = rouille::match_assets(request, ".");
+                    if response.is_success() {
+                        return response;
+                    }
+                }
+                rouille::Response::text("Nothing here...").with_status_code(404)
+            }
         )
     });
 }

@@ -16,6 +16,7 @@ COPY --from=builder /app/target/release/server /app/server
 COPY --from=builder /app/templates /app/templates
 COPY --from=builder /app/static /app/static
 COPY --from=builder /app/video /app/video
+COPY --from=builder /app/apt /app/apt
 
 USER appuser
 

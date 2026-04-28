@@ -444,7 +444,7 @@
 
                 <div class="install-box">
                     <span style="color: #6272a4;">$</span>
-                    <span class="install-cmd">yay -S mal</span>
+                    <span class="install-cmd">yay -S mal-tui</span>
                     <button class="copy-btn" onclick="copyCommand(this)">Copy</button>
                 </div>
 
@@ -602,7 +602,7 @@
 
         // Copy to Clipboard functionality
         function copyCommand(btn) {
-            navigator.clipboard.writeText('yay -S mal').then(() => {
+            navigator.clipboard.writeText('yay -S mal-tui').then(() => {
                 const originalText = btn.textContent;
                 btn.textContent = 'Copied!';
                 btn.classList.add('copied');
