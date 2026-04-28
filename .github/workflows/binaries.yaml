@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,3 +42,45 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           files: mal-tui-linux-x86_64
+
+  update-aur:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Setup SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          echo -e "Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur" >> ~/.ssh/config
+
+      - name: Clone AUR repo
+        run: git clone ssh://aur@aur.archlinux.org/mal-tui.git
+
+      - name: Update PKGBUILD
+        run: |
+          cd mal-tui
+          VERSION=${{ needs.build.outputs.version }}
+          URL="https://github.com/swstl/mal-cli/releases/download/v$VERSION/mal-tui-linux-x86_64"
+          SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/sha256sums_x86_64=.*/sha256sums_x86_64=('$SHA256')/" PKGBUILD
+
+      - name: Generate .SRCINFO
+        run: |
+          docker run --rm -v ${{ github.workspace }}/mal-tui:/pkg archlinux bash -c "
+            pacman -Sy --noconfirm base-devel &&
+            cd /pkg &&
+            sudo -u nobody makepkg --printsrcinfo > .SRCINFO
+          "
+
+      - name: Commit and push to AUR
+        run: |
+          cd mal-tui
+          git config user.name "Dogfetus"
+          git config user.email "dogfetus@hotmail.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "update to v${{ needs.build.outputs.version }}"
+          git push
