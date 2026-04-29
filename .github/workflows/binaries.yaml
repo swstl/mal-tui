@@ -2,74 +2,133 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'Cargo.toml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      update_release:
+        description: 'Add artifacts to the current release and update apt repo + Docker'
+        type: boolean
+        default: false
 
 jobs:
-  build:
+  setup:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6.0.2
-
+      - uses: actions/checkout@v4
       - name: Get version from Cargo.toml
         id: version
         run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)" >> $GITHUB_OUTPUT
 
-      - name: Build in ubuntu:18.04 for GLIBC compatibility
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            ubuntu:18.04 bash -c "
-              apt-get update &&
-              apt-get install -y curl gcc libssl-dev pkg-config git libsqlite3-dev &&
-              curl https://sh.rustup.rs -sSf | sh -s -- -y &&
-              export PATH=\"\$HOME/.cargo/bin:\$PATH\" &&
-              cargo build --release &&
-              cp target/release/mal-tui mal-tui-linux-x86_64
-            "
+  build:
+    needs: setup
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            suffix: linux-x86_64
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            suffix: linux-aarch64
+            deb_arch: arm64
+          - target: armv7-unknown-linux-gnueabihf
+            suffix: linux-armv7
+            deb_arch: armhf
+          - target: i686-unknown-linux-gnu
+            suffix: linux-i686
+            deb_arch: i386
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Build .deb and update apt repo
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifacts
         run: |
-          VERSION=${{ steps.version.outputs.version }}
+          VERSION=${{ needs.setup.outputs.version }}
+          DEB_ARCH=${{ matrix.deb_arch }}
+          cp target/${{ matrix.target }}/release/mal-tui mal-tui-${{ matrix.suffix }}
           sudo apt-get install -y dpkg-dev
-
           mkdir -p deb-pkg/usr/bin deb-pkg/DEBIAN
-          cp mal-tui-linux-x86_64 deb-pkg/usr/bin/mal-tui
+          cp mal-tui-${{ matrix.suffix }} deb-pkg/usr/bin/mal-tui
           chmod +x deb-pkg/usr/bin/mal-tui
-          printf 'Package: mal-tui\nVersion: %s\nArchitecture: amd64\nMaintainer: swstl <swstl@hotmail.com>\nDescription: A terminal client for MyAnimeList\n' "$VERSION" > deb-pkg/DEBIAN/control
-          dpkg-deb --build --root-owner-group deb-pkg server/apt/pool/mal-tui_${VERSION}_amd64.deb
+          printf 'Package: mal-tui\nVersion: %s\nArchitecture: %s\nMaintainer: swstl <swstl@hotmail.com>\nDescription: A terminal client for MyAnimeList\n' "$VERSION" "$DEB_ARCH" > deb-pkg/DEBIAN/control
+          dpkg-deb --build --root-owner-group deb-pkg mal-tui_${VERSION}_${DEB_ARCH}.deb
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suffix }}
+          path: |
+            mal-tui-${{ matrix.suffix }}
+            mal-tui_*.deb
+
+  release:
+    needs: [setup, build]
+    if: github.event_name == 'push' || inputs.update_release == true
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Update apt repo
+        run: |
+          sudo apt-get install -y dpkg-dev
           cd server/apt
-          dpkg-scanpackages pool > dists/stable/main/binary-amd64/Packages
-          gzip -k -f dists/stable/main/binary-amd64/Packages
-          printf 'Origin: mal-tui\nLabel: mal-tui\nSuite: stable\nCodename: stable\nArchitectures: amd64\nComponents: main\nDescription: mal-tui apt repository\n' > dists/stable/Release
+          for arch in amd64 arm64 armhf i386; do
+            mkdir -p pool/${arch} dists/stable/main/binary-${arch}
+            find $GITHUB_WORKSPACE/artifacts -name "*_${arch}.deb" -exec cp {} pool/${arch}/ \;
+            dpkg-scanpackages pool/${arch} > dists/stable/main/binary-${arch}/Packages
+            gzip -k -f dists/stable/main/binary-${arch}/Packages
+          done
+          printf 'Origin: mal-tui\nLabel: mal-tui\nSuite: stable\nCodename: stable\nArchitectures: amd64 arm64 armhf i386\nComponents: main\nDescription: mal-tui apt repository\n' > dists/stable/Release
 
-      - name: Create release
+      - name: Sign apt repo
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd server/apt
+          gpg --batch --yes --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --armor --detach-sign -o dists/stable/Release.gpg dists/stable/Release
+
+      - name: Create or update release
         uses: softprops/action-gh-release@v3.0.0
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.setup.outputs.version }}
+          name: v${{ needs.setup.outputs.version }}
           files: |
-            mal-tui-linux-x86_64
-            server/apt/pool/mal-tui_${{ steps.version.outputs.version }}_amd64.deb
+            artifacts/linux-x86_64/mal-tui-linux-x86_64
+            artifacts/linux-aarch64/mal-tui-linux-aarch64
+            artifacts/linux-armv7/mal-tui-linux-armv7
+            artifacts/linux-i686/mal-tui-linux-i686
+            artifacts/**/*.deb
 
       - name: Commit apt repo changes
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add server/apt/
-          git commit -m "update apt repo to v${{ steps.version.outputs.version }}"
+          git commit -m "update apt repo to v${{ needs.setup.outputs.version }}"
           git push
 
   update-aur:
-    needs: build
+    needs: [setup, release]
+    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     steps:
       - name: Setup SSH for AUR
@@ -86,7 +145,7 @@ jobs:
       - name: Update PKGBUILD
         run: |
           cd mal-tui
-          VERSION=${{ needs.build.outputs.version }}
+          VERSION=${{ needs.setup.outputs.version }}
           URL="https://github.com/swstl/mal-cli/releases/download/v$VERSION/mal-tui-linux-x86_64"
           SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
@@ -109,5 +168,5 @@ jobs:
           git config user.name "Dogfetus"
           git config user.email "dogfetus@hotmail.com"
           git add PKGBUILD .SRCINFO
-          git commit -m "update to v${{ needs.build.outputs.version }}"
+          git commit -m "update to v${{ needs.setup.outputs.version }}"
           git push
