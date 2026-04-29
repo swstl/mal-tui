@@ -2,6 +2,6 @@ Origin: mal-tui
 Label: mal-tui
 Suite: stable
 Codename: stable
-Architectures: amd64
+Architectures: amd64 arm64 armhf i386
 Components: main
 Description: mal-tui apt repository

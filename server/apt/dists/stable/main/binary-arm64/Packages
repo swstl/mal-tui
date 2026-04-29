@@ -1,0 +1,11 @@
+Package: mal-tui
+Version: 1.1.3
+Architecture: arm64
+Maintainer: swstl <swstl@hotmail.com>
+Filename: pool/arm64/mal-tui_1.1.3_arm64.deb
+Size: 7142038
+MD5sum: 7a39e466e87eafede145653bc17efac5
+SHA1: 58663ad766b672a855d40aec89056260cd2ac109
+SHA256: 9fee10ae70ef45332d8cf9cd10fa44c69131c0351bfabaebe23987a8cdf2ee7b
+Description: A terminal client for MyAnimeList
+

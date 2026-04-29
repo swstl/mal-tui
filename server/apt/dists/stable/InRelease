@@ -1,0 +1,26 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: mal-tui
+Label: mal-tui
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64 armhf i386
+Components: main
+Description: mal-tui apt repository
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEaRTXCgVrE3hZ66pKPHUgoPxdH/oFAmnxtH0ACgkQPHUgoPxd
+H/pe/A/8Dsrf++Kc+IqpnBZEdzIyh07t0jZ3zc2r4K3CUWzRME602iY2wkX0xkS+
+DaWoMtkna6gQ6arIMdNMAAoJj4vc7CJHxHbBwZNUqbJoSGhCmyD2nXq2yk6Hd0YL
+QBC0IqDZPa6dlpuB5N3+mJ+KsiQFouFc2qVLRUjOXY4gpQ85cXXxge3MMeDP/7OH
+c/RHRYvHiT/84XTXzK0j/OLu7ZDk3jZxf+DhsPdculzwCM7PpjdkJyxCu5GA//hZ
+zRx2VwRXfsyrN+g/5gOTiSPQpOmv2REd/AjJEsfi1rCxUUemg+QOrTUumg5njQQh
+tVV1BoRZ6GQtFgfzYXzewu6w9j7dbHW10EBWSZJBrG13GociXbU5XRrqcpQC0w7C
+3LUdoRuJ1dRmGTQp3DAPImOm5G+/VYEHy2rgtaMODydqhPhY62GxEun8XxSjDHDv
+atEzh0F7PBOhSRcIEHceTdUE09mIkb4z6Jdx8X2XLRcYXdDpvfGgDywvpCY5OkoV
+WV6040Yc3J53GYrTLGpeQBCwSKHWHyPMuxeapnxc+eMpf0WJvvbbN5bFeKMURxpf
+//syrNc0cdUEy6zBdp6tirP0Vu+aXWcMMP/uIqesdbpgORd1FNbUob/P0z14MOSA
+IamI47u6jjvEfHzTyS2AJGTTLn5lrqs3gxoABJGJ6BDwhGBX1lc=
+=g9NI
+-----END PGP SIGNATURE-----
