@@ -149,11 +149,17 @@ jobs:
         run: |
           cd mal-tui
           VERSION=${{ needs.setup.outputs.version }}
-          URL="https://github.com/swstl/mal-cli/releases/download/v$VERSION/mal-tui-linux-x86_64"
-          SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
+          BASE_URL="https://github.com/swstl/mal-cli/releases/download/v$VERSION"
+          SHA256_X86_64=$(curl -sL "$BASE_URL/mal-tui-linux-x86_64" | sha256sum | cut -d' ' -f1)
+          SHA256_AARCH64=$(curl -sL "$BASE_URL/mal-tui-linux-aarch64" | sha256sum | cut -d' ' -f1)
+          SHA256_ARMV7H=$(curl -sL "$BASE_URL/mal-tui-linux-armv7" | sha256sum | cut -d' ' -f1)
+          SHA256_I686=$(curl -sL "$BASE_URL/mal-tui-linux-i686" | sha256sum | cut -d' ' -f1)
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-          sed -i "s/sha256sums_x86_64=.*/sha256sums_x86_64=('$SHA256')/" PKGBUILD
+          sed -i "s/sha256sums_x86_64=.*/sha256sums_x86_64=('$SHA256_X86_64')/" PKGBUILD
+          sed -i "s/sha256sums_aarch64=.*/sha256sums_aarch64=('$SHA256_AARCH64')/" PKGBUILD
+          sed -i "s/sha256sums_armv7h=.*/sha256sums_armv7h=('$SHA256_ARMV7H')/" PKGBUILD
+          sed -i "s/sha256sums_i686=.*/sha256sums_i686=('$SHA256_I686')/" PKGBUILD
 
       - name: Generate .SRCINFO
         run: |
