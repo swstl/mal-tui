@@ -73,13 +73,15 @@ impl VideoPlayer {
         let stdout = self.ansi_regex.replace_all(&messy_stdout, "").to_string();
         let stderr = self.ansi_regex.replace_all(&messy_stderr, "").to_string();
         let exit_code = output.status.code().unwrap_or(-1);
-        if !stderr.is_empty() && exit_code != 0 {
+        // mpv exit codes: 0 = clean EOF, 4 = quit by user. Both are success.
+        let success = matches!(exit_code, 0 | 4);
+        if !success {
             if stderr.contains("No results found!") {
                 return Err(PlayError::NoResults(stderr));
             } else {
                 return Err(PlayError::CommandFailed {
                     stderr,
-                    exit_code: output.status.code().unwrap_or(-1),
+                    exit_code,
                     stdout,
                 });
             }
