@@ -29,7 +29,7 @@ fn extract_title(line: &str) -> &str {
     }
 }
 
-fn main() {
+pub fn run() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
 

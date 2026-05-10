@@ -46,7 +46,17 @@ fn parse_cli() -> bool {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
+    // when invoked via symlink as `fzf` or `mpv`,
+    if let Some(name) = std::env::args()
+        .next()
+        .and_then(|p| std::path::Path::new(&p).file_name().map(|s| s.to_string_lossy().into_owned()))
+    {
+        match name.as_str() {
+            "fzf" => { player::fzf::run(); return Ok(()); }
+            "mpv" => { player::mpv::run(); return Ok(()); }
+            _ => {}
+        }
+    }
 
     let run_command = parse_cli();
     if run_command {

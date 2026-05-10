@@ -1,4 +1,6 @@
 mod video_player;
+pub mod fzf;
+pub mod mpv;
 
 use crate::{mal::models::anime::Anime, player::video_player::VideoPlayer};
 use crate::config::Config;
@@ -114,13 +116,15 @@ impl AnimePlayer {
     }
 
     pub fn extract_url(&self, anime: &Anime, episode: u32) -> Result<(String, Option<String>), PlayError> {
-        // add our own mpv and fzf
-        let selector_dir = std::env::current_exe()
-            .map_err(|e| PlayError::Other(e.to_string()))?
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let new_path = format!("{}:{}", selector_dir.display(), std::env::var("PATH").unwrap_or_default());
+        let exe = std::env::current_exe().map_err(|e| PlayError::Other(e.to_string()))?;
+        let shim_dir = std::env::temp_dir().join(format!("mal-tui-{}", std::process::id()));
+        std::fs::create_dir_all(&shim_dir).map_err(|e| PlayError::Other(e.to_string()))?;
+        for name in ["fzf", "mpv"] {
+            let link = shim_dir.join(name);
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&exe, &link).map_err(|e| PlayError::Other(e.to_string()))?;
+        }
+        let new_path = format!("{}:{}", shim_dir.display(), std::env::var("PATH").unwrap_or_default());
 
         let child = Command::new("ani-cli")
             .env("PATH", new_path)

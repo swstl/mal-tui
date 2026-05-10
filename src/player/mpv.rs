@@ -1,4 +1,4 @@
-fn main() {
+pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     let referrer = args
