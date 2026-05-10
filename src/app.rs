@@ -255,7 +255,7 @@ impl App {
 
         match self
             .anime_player
-            .play_episode_manually(&anime, next_episode)
+            .play_anime(&anime, next_episode)
         {
             Ok(episode_details) => {
                 // update the status to now watching (in memory first)

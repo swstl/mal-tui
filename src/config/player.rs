@@ -10,12 +10,18 @@ pub struct Player {
     #[serde(default)]
     pub always_complete_episode: bool,
 
-    /// Hook to run before playback starts
+    /// Hook runs before ani-cli is launched
     /// Replaces: {title}, {episode}
+    pub launching_hook: Option<String>,
+
+    /// Hook to run before playback starts
+    /// Replaces: {url}, {referrer}, {title}, {episode}
     pub pre_playback_hook: Option<String>,
 
     /// Hook to run after playback ends
-    /// Replaces: {url}, {referrer}, {title}, {episode}
+    /// Replaces:
+    /// {url}, {referrer}, {title}, {episode}, {current_time},
+    /// {total_time}, {percentage}, {is_completed}, {fully_watched}
     /// referrer might be empty
     pub post_playback_hook: Option<String>,
 }

@@ -1,69 +1,15 @@
-use base64::engine::general_purpose::STANDARD;
-use base64::engine::Engine;
-use openssl::{hash::{hash, MessageDigest}, symm::{decrypt, Cipher}};
-use allanime::EpisodeSearch;
-use allanime::LinksSearch;
-use allanime::ShowEdge;
-use allanime::ShowSearch;
-use allanime::SourceUrl;
-mod allanime;
-use regex::Regex;
-use url::Url;
+mod video_player;
 
-use crate::{config::Config, player::allanime::EpisodeDataRoot};
-use crate::mal::models::anime::Anime;
-use crate::mal::network::send_request;
-use crate::mal::network::send_request_expect_text;
-use crate::params;
-use crate::player::allanime::ToBeParsed;
-use crate::utils::stringManipulation::levenshtein_distance;
-use serde_json::json;
+use crate::{mal::models::anime::Anime, player::video_player::VideoPlayer};
+use crate::config::Config;
+pub use self::video_player::PlayError;
+pub use self::video_player::PlayResult;
+
+use std::{process::{Command, Stdio}};
 use shell_escape::escape;
-use std::io::ErrorKind;
-use std::process::Command;
-
-
-const BASE: &str = "https://allanime.day";
-const API: &str = "https://api.allanime.day/api";
-const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0";
-const REF: &str = "https://youtu-chan.com";
-const KEY: &str = "Xot36i3lK3:v1";
-const MODE: &str = "sub";
-
-
-#[derive(Debug, Clone)]
-pub enum PlayError {
-    NotReleased(Box<Anime>),
-    CommandFailed {
-        stderr: String,
-        exit_code: i32,
-        stdout: String,
-    },
-    NotFound(String),
-    NoResults(String),
-    Other(String),
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct PlayResult {
-    pub episode: u32,
-    pub current_time: String,
-    pub total_time: String,
-    pub percentage: u8,
-    pub fully_watched: bool,
-    pub is_completed: bool,
-}
 
 pub struct AnimePlayer {
-    ansi_regex: Regex,
-
-    //mpv regex:
-    av_regex: Regex,
-    exit_regex: Regex,
-
-    // url Regex:
-    wixmp_regex: Regex,
+    video_player: VideoPlayer,
 }
 
 impl std::fmt::Display for PlayError {
@@ -103,97 +49,53 @@ impl std::fmt::Display for PlayError {
 impl AnimePlayer {
     pub fn new() -> Self {
         AnimePlayer {
-            ansi_regex: Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\([AB]|\r|\x1b[78]").unwrap(),
-            av_regex: Regex::new(r"AV: (\d{2}:\d{2}:\d{2}) / (\d{2}:\d{2}:\d{2}) \((\d+)%\)")
-                .unwrap(),
-            exit_regex: Regex::new(r"Exiting\.\.\. \((.*?)\)").unwrap(),
-            wixmp_regex: Regex::new(
-                r#"^video\.wixstatic\.com/video/([^/]+)/,([^/]+),/mp4/file\.mp4$"#,
-            )
-            .unwrap(),
+            video_player: VideoPlayer::new(),
         }
     }
 
-    pub fn extract_play_info(&self, stdout: &str, episode: u32) -> Option<PlayResult> {
-        // return default if no output
-        if stdout.is_empty() {
-            return Some(PlayResult {
+    pub fn play_anime(&self, anime: &Anime, episode: u32) -> Result<PlayResult, PlayError> {
+        for bin in ["ani-cli"] {
+            if !is_in_path(bin) {
+                return Err(PlayError::NotFound(format!("{} is not installed or not in PATH", bin)));
+            }
+        }
+        // hook
+        if let Some(hook) = Config::global().player.launching_hook.clone()
+            && let Err(e) = self.run_command(&hook, anime, episode, None, None)
+        {
+            eprintln!("Failed to run launching hook: {}", e);
+        };
+
+        ratatui::restore();
+
+
+        let loc = self.extract_url(anime, episode).map_err(|e| PlayError::Other(e.to_string()))?;
+
+        // hook
+        if let Some(hook) = Config::global().player.pre_playback_hook.clone()
+            && let Err(e) = self.run_command(&hook, anime, episode, Some(&loc), None)
+        {
+            eprintln!("Failed to run pre-playback hook: {}", e);
+        };
+
+        let result = if Config::global().player.disable_default_player {
+            PlayResult {
                 current_time: "00:00:00".to_string(),
                 total_time: "00:00:00".to_string(),
                 is_completed: false,
                 fully_watched: false,
                 percentage: 0,
                 episode,
-            });
-        }
-
-        let last_av = if let Some(last_av) = stdout.rfind("AV: ") {
-            let last_stdout = &stdout[last_av..];
-            self.av_regex.captures(last_stdout)?
+            }
         } else {
-            return None;
-        };
-
-        let exit_reason = self
-            .exit_regex
-            .captures(stdout)
-            .and_then(|cap| cap.get(1))
-            .map(|m| m.as_str());
-
-        let percentage = last_av[3].parse().unwrap_or(0);
-
-        Some(PlayResult {
-            current_time: last_av[1].to_string(),
-            total_time: last_av[2].to_string(),
-            is_completed: percentage >= 90,
-            fully_watched: exit_reason == Some("End of file"),
-            percentage,
-            episode,
-        })
-    }
-
-    pub fn play_episode_manually(
-        &self,
-        anime: &Anime,
-        episode: u32,
-    ) -> Result<PlayResult, PlayError> {
-        if anime.status == "upcoming" {
-            return Err(PlayError::NotReleased(Box::new(anime.clone())));
-        }
-
-        ratatui::restore();
-
-        // hook
-        if let Some(hook) = Config::global().player.pre_playback_hook.clone()
-            && let Err(e) = self.run_command(&hook, anime, episode, None)
-        {
-            eprintln!("Failed to run pre-playback hook: {}", e);
-        };
-
-
-        // get available shows for the given anime title
-        let shows = self.get_shows(anime.title.clone())?;
-
-        // extract the correct show id from the list of shows
-        let id = self.extract_correct_id(&shows, anime)?;
-
-        // get the available episodes for the show
-        let available_episodes = self.get_episode_providers(&id, episode)?;
-
-        // extract the correct (the one with highest priority) episode from the list of available episodes
-        let candidate = self.extract_best_candidate(&available_episodes)?;
-
-        let result = if Config::global().player.disable_default_player {
-            String::new()
-        } else {
-            self.play_video_in_mpv(&candidate)?
+            self.video_player.play(&loc, episode)?
         };
 
         // hook
         if let Some(hook) = Config::global().player.post_playback_hook.clone()
-            && let Err(e) = self.run_command(&hook, anime, episode, Some(&candidate))
+            && let Err(e) = self.run_command(&hook, anime, episode, Some(&loc), Some(&result))
         {
-            eprintln!("Failed to run pre-playback hook: {}", e);
+            eprintln!("Failed to run post-playback hook: {}", e);
         };
 
         // mark as completed
@@ -208,541 +110,56 @@ impl AnimePlayer {
             });
         }
 
-        self.extract_play_info(&result, episode).ok_or_else(|| {
-            PlayError::Other("player did not return any play information".to_string())
-        })
+        Ok(result)
     }
 
-    // searches for shows with the given name and returns a list of ShowEdge
-    fn get_shows(&self, show: String) -> Result<Vec<ShowEdge>, PlayError> {
-        let search_gql = r#"
-        query( $search: SearchInput, $limit: Int, $page: Int, $translationType: VaildTranslationTypeEnumType, $countryOrigin: VaildCountryOriginEnumType ) {
-            shows( search: $search, limit: $limit, page: $page, translationType: $translationType, countryOrigin: $countryOrigin ) {
-                edges { _id name availableEpisodes __typename }
-            }
-        }
-        "#;
+    pub fn extract_url(&self, anime: &Anime, episode: u32) -> Result<(String, Option<String>), PlayError> {
+        // add our own mpv and fzf
+        let selector_dir = std::env::current_exe()
+            .map_err(|e| PlayError::Other(e.to_string()))?
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let new_path = format!("{}:{}", selector_dir.display(), std::env::var("PATH").unwrap_or_default());
 
-        let variables = json!({
-            "search": {
-                "allowAdult": true, // the configs decides this
-                "allowUnknown": false,
-                "query": show,
-            },
-            "limit": 40,
-            "page": 1,
-            "translationType": MODE,
-            "countryOrigin": "ALL"
-        });
+        let child = Command::new("ani-cli")
+            .env("PATH", new_path)
+            .env("ANICLI_TARGET", &anime.title)
+            .arg("--no-detach")
+            .arg("--exit-after-play")
+            .arg("-e")
+            .arg(episode.to_string())
+            .arg(&anime.title)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| PlayError::NotFound(e.to_string()))?;
 
-        let gql_body = json!({
-            "variables": variables,
-            "query": search_gql,
-        });
+        println!("spawned ani-cli with pid {}", child.id());
 
-        let headers = params![
-            "User-Agent" => UA,
-            "Referer" => REF,
-            "Content-Type" => "application/json",
-        ];
-
-        let result = send_request::<ShowSearch>("POST", API.to_string(), vec![], headers, Some(&gql_body.to_string()));
-        match result {
-            Ok(response) => {
-                if response.data.shows.edges.is_empty() {
-                    return Err(PlayError::NoResults("No shows found".to_string()));
-                }
-                Ok(response.data.shows.edges)
-            }
-            Err(e) => Err(PlayError::Other(format!("Error fetching shows: {}", e))),
-        }
-    }
-
-    // finds the correct show id from the list of shows and returns its id
-    fn extract_correct_id(&self, shows: &[ShowEdge], anime: &Anime) -> Result<String, PlayError> {
-        // Try to match name exactly first:
-        let show = shows
-            .iter()
-            .find(|s| s.name.eq_ignore_ascii_case(&anime.title))
-            .or_else(|| {
-                // If no exact match, find the one(s) with lowest distance
-                if shows.is_empty() {
-                    return None;
-                }
-
-                // Calculate distances for all shows
-                let distances: Vec<(usize, &ShowEdge)> = shows
-                    .iter()
-                    .map(|s| {
-                        (
-                            levenshtein_distance(
-                                &s.name.to_lowercase(),
-                                &anime.title.to_lowercase(),
-                            ),
-                            s,
-                        )
-                    })
-                    .collect();
-
-                // Find the minimum distance
-                let min_distance = distances.iter().map(|(dist, _)| *dist).min().unwrap();
-
-                // Get all the smallest distance matches
-                let best_matches = distances
-                    .into_iter()
-                    .filter(|(dist, _)| *dist == min_distance)
-                    .map(|(_, show)| show)
-                    .collect::<Vec<&ShowEdge>>();
-
-                // select the one with the most episodes:
-                best_matches
-                    .into_iter()
-                    .max_by_key(|show| show.available_episodes.sub + show.available_episodes.dub)
-            })
-            .ok_or(PlayError::NoResults("No shows found".to_string()))?;
-
-        println!(
-            "Playing \"{}\" ({}) episode: {}",
-            show.name,
-            show.id,
-            anime.my_list_status.num_episodes_watched + 1
-        );
-
-        Ok(show.id.clone())
-    }
-
-    fn get_episode_providers(
-        &self,
-        show_id: &str,
-        episode: u32,
-    ) -> Result<Vec<SourceUrl>, PlayError> {
-        let episode_gql = r#"
-            query($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) {
-                episode(showId: $showId, translationType: $translationType, episodeString: $episodeString) {
-                    episodeString sourceUrls
-                }
-            }
-        "#;
-
-        let variables = json!({
-            "showId": show_id,
-            "translationType": MODE,
-            "episodeString": episode.to_string(),
-        });
-
-        let gql_body = json!({
-            "variables": variables,
-            "query": episode_gql,
-        });
-
-        let headers = params![
-            "User-Agent" => UA,
-            "Referer" => REF,
-            "Content-Type" => "application/json",
-        ];
-
-        let encoded = send_request::<ToBeParsed>("POST", API.to_string(), vec![], headers, Some(&gql_body.to_string())).unwrap();
-        let decoded = Self::decode_tobeparsed(&encoded.data.tobeparsed);
-
-        match decoded {
-            Ok(mut response) => {
-                if response.episode.source_urls.is_empty() {
-                    return Err(PlayError::NoResults("No episodes found".to_string()));
-                }
-
-                for source in response.episode.source_urls.iter_mut() {
-                    if source.source_url.starts_with("http") {
-                        continue;
-                    }
-
-                    let (source_url, http_appended) = AnimePlayer::decode_clock(&source.source_url)
-                        .unwrap_or_else(|_| (source.source_url.clone(), false));
-
-                    source.source_url = source_url;
-
-                    if !http_appended {
-                        //this means the url already had https (its
-                        //already its full path), nothing more to do (i think)
-                        continue;
-                    }
-
-                    let headers = params![
-                        "User-Agent" => UA,
-                        "Referer" => REF,
-                    ];
-
-                    let url = source.source_url.clone();
-
-                    if let Ok(link_details) =
-                        send_request::<LinksSearch>("GET", url, params![], headers, None)
-                    {
-                        source.extra_values = link_details.links.into_iter().next();
-                    }
-                }
-
-                Ok(response.episode.source_urls)
-            }
-            Err(e) => Err(PlayError::Other(format!("Error fetching episodes: {}", e))),
-        }
-    }
-
-    fn decode_tobeparsed(blob: &str) -> Result<EpisodeDataRoot, PlayError> {
-        let key = hash(MessageDigest::sha256(), KEY.as_bytes())
+        let output = child.wait_with_output()
             .map_err(|e| PlayError::Other(e.to_string()))?;
 
-        let data = STANDARD
-            .decode(blob.trim())
-            .map_err(|e| PlayError::Other(e.to_string()))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
 
-        if data.len() < 29 {
-            return Err(PlayError::Other("blob too short".into()));
+        let marker = stdout
+            .lines()
+            .find(|l| l.contains("__MAL_MPV__"))
+            .ok_or_else(|| PlayError::Other(format!(
+                "missing __MAL_MPV__ marker. raw stdout was:\n{}",
+                stdout
+            )))?;
+
+        let mut parts = marker.split('\t');
+        parts.next(); // skip the marker token
+        let url = parts.next().unwrap_or("").to_string();
+        let referrer = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
+
+        if url.is_empty() {
+            return Err(PlayError::Other("ani-cli did not return a URL".to_string()));
         }
 
-        let mut ctr_block = [0u8; 16];
-        ctr_block[..12].copy_from_slice(&data[1..13]);
-        ctr_block[12..].copy_from_slice(&2u32.to_be_bytes());
-
-        let ct_end = data.len() - 16;
-        let plain = decrypt(
-            Cipher::aes_256_ctr(),
-            &key,
-            Some(&ctr_block),
-            &data[13..ct_end])
-            .map_err(|e| PlayError::Other(e.to_string()))?;
-
-        let plain_str = String::from_utf8_lossy(&plain);
-
-        serde_json::from_str::<EpisodeDataRoot>(&plain_str).map_err(|e| {
-            PlayError::Other(format!("parse: {} | raw: {}", e, &plain_str[..plain_str.len().min(300)]))
-        })
-    }
-
-    fn decode_clock(enc: &str) -> Result<(String, bool), String> {
-        let bytes = enc.trim_start_matches("--");
-        if !bytes.len().is_multiple_of(2) {
-            return Err("odd-length clock encoding".into());
-        }
-
-        let mut out = String::with_capacity(bytes.len() / 2);
-        for i in (0..bytes.len()).step_by(2) {
-            let key = &bytes[i..i + 2].to_ascii_lowercase();
-            let ch = match key.as_str() {
-                "79" => "A",
-                "7a" => "B",
-                "7b" => "C",
-                "7c" => "D",
-                "7d" => "E",
-                "7e" => "F",
-                "7f" => "G",
-                "70" => "H",
-                "71" => "I",
-                "72" => "J",
-                "73" => "K",
-                "74" => "L",
-                "75" => "M",
-                "76" => "N",
-                "77" => "O",
-                "68" => "P",
-                "69" => "Q",
-                "6a" => "R",
-                "6b" => "S",
-                "6c" => "T",
-                "6d" => "U",
-                "6e" => "V",
-                "6f" => "W",
-                "60" => "X",
-                "61" => "Y",
-                "62" => "Z",
-                "59" => "a",
-                "5a" => "b",
-                "5b" => "c",
-                "5c" => "d",
-                "5d" => "e",
-                "5e" => "f",
-                "5f" => "g",
-                "50" => "h",
-                "51" => "i",
-                "52" => "j",
-                "53" => "k",
-                "54" => "l",
-                "55" => "m",
-                "56" => "n",
-                "57" => "o",
-                "48" => "p",
-                "49" => "q",
-                "4a" => "r",
-                "4b" => "s",
-                "4c" => "t",
-                "4d" => "u",
-                "4e" => "v",
-                "4f" => "w",
-                "40" => "x",
-                "41" => "y",
-                "42" => "z",
-                "08" => "0",
-                "09" => "1",
-                "0a" => "2",
-                "0b" => "3",
-                "0c" => "4",
-                "0d" => "5",
-                "0e" => "6",
-                "0f" => "7",
-                "00" => "8",
-                "01" => "9",
-                "15" => "-",
-                "16" => ".",
-                "67" => "_",
-                "46" => "~",
-                "02" => ":",
-                "17" => "/",
-                "07" => "?",
-                "1b" => "#",
-                "63" => "[",
-                "65" => "]",
-                "78" => "@",
-                "19" => "!",
-                "1c" => "$",
-                "1e" => "&",
-                "10" => "(",
-                "11" => ")",
-                "12" => "*",
-                "13" => "+",
-                "14" => ",",
-                "03" => ";",
-                "05" => "=",
-                "1d" => "%",
-                _ => return Err(format!("unknown code {key}")),
-            };
-            out.push_str(ch);
-        }
-
-        if out.ends_with("/clock") {
-            out.push_str(".json");
-        }
-        // replace all occurrences
-        else if !out.ends_with("/clock.json") {
-            out = out.replace("/clock", "/clock.json");
-        }
-
-        // return the url if it already includes the host
-        if out.starts_with("https://") || out.starts_with("http://") {
-            return Ok((out, false));
-        }
-
-        Ok((BASE.to_string() + &out, true))
-    }
-
-    fn extract_best_candidate(
-        &self,
-        sources: &[SourceUrl],
-    ) -> Result<(String, Option<String>), PlayError> {
-        let mut variants: Vec<(i32, String, Option<String>, i32)> = Vec::new();
-
-        for source in sources {
-            let Some(link) = source
-                .extra_values
-                .as_ref()
-                .map(|l| l.link.as_str())
-                .filter(|s| !s.is_empty())
-            else {
-                variants.push((0, source.source_url.clone(), None, 0));
-                continue;
-            };
-
-            if let Some(values) = self.convert_wixmp(link) {
-                for (qlt, url) in values {
-                    variants.push((qlt, url, None, 2))
-                }
-                continue;
-            }
-
-            if let Some(values) = self.parse_master_m3u8(link) {
-                for (qlt, url) in values {
-                    variants.push((qlt, url, Some(REF.to_string()), 3))
-                }
-                continue;
-            }
-
-            //anything else (like sharepoint?)
-            variants.push((1, link.to_string(), None, 0));
-        }
-
-        if variants.is_empty() {
-            return Err(PlayError::NoResults("No playable sources".to_string()));
-        }
-
-        // sort: by height desc then by kind weight (HLS > MP4 > Other)
-        variants.sort_by(|a, b| (b.0, b.3).cmp(&(a.0, a.3)));
-
-        let (_, url, referer, _k) = variants.remove(0);
-        Ok((url, referer))
-    }
-
-    /// https://repackager.wixmp.com/video.wixstatic.com/video/<id>/,1080p,720p,480p,/mp4/file.mp4.urlset/master.m3u8
-    fn convert_wixmp(&self, url: &str) -> Option<Vec<(i32, String)>> {
-        if !url.contains("repackager.wixmp.com") {
-            return None;
-        }
-
-        let base = url
-            .trim_start_matches("https://repackager.wixmp.com/")
-            .trim_end_matches(".urlset/master.m3u8");
-
-        // capture the comma quality list between ".../<id>/" and "/mp4/"
-        let caps = self.wixmp_regex.captures(base)?;
-        let id = caps.get(1)?.as_str();
-        let quality_list = caps.get(2)?.as_str();
-
-        let qualities: Vec<&str> = quality_list.split(',').collect();
-        if qualities.is_empty() {
-            return None;
-        }
-
-        // replace each ",<something>" segment with the chosen quality
-        let mut out = Vec::new();
-        for q in qualities {
-            let h = q.trim_end_matches('p').parse::<i32>().unwrap_or(0);
-            let u = format!(
-                "https://video.wixstatic.com/video/{}/{}/mp4/file.mp4",
-                id, q
-            );
-            out.push((h, u));
-        }
-
-        out.sort_by(|a, b| b.0.cmp(&a.0));
-        Some(out)
-    }
-
-    fn parse_master_m3u8(&self, url: &str) -> Option<Vec<(i32, String)>> {
-        if !url.ends_with("master.m3u8") {
-            return None;
-        }
-
-        let parameters = params![];
-        let headers = params![
-            "User-Agent" => UA,
-            "Referer" => REF,
-        ];
-        let body: Option<&str> = None;
-        let text =
-            send_request_expect_text("GET", url.to_string(), parameters, headers, body).ok()?;
-
-        if !text.contains("#EXTM3U") {
-            return None;
-        }
-
-        let base = Url::parse(url).ok()?;
-        let mut out: Vec<(i32, String)> = Vec::new();
-        let mut pending_height = 0i32;
-        let mut want_url_next = false;
-
-        for raw in text.lines() {
-            let line = raw.trim();
-
-            if line.starts_with("#EXT-X-I-FRAME-STREAM-INF") {
-                want_url_next = false;
-                pending_height = 0;
-                continue;
-            }
-
-            if line.starts_with("#EXT-X-STREAM-INF") {
-                pending_height = self.parse_height_from_inf(line);
-                want_url_next = true;
-                continue;
-            }
-
-            if want_url_next && !line.is_empty() && !line.starts_with('#') {
-                // resolve relative → absolute
-                let abs = if let Ok(u) = Url::parse(line) {
-                    u
-                } else if let Ok(u) = base.join(line) {
-                    u
-                } else {
-                    want_url_next = false;
-                    pending_height = 0;
-                    continue;
-                };
-                out.push((pending_height, abs.to_string()));
-                want_url_next = false;
-                pending_height = 0;
-            }
-        }
-
-        if out.is_empty() {
-            return None;
-        }
-
-        // sort highest first
-        out.sort_by(|a, b| b.0.cmp(&a.0));
-        Some(out)
-    }
-
-    fn parse_height_from_inf(&self, inf_line: &str) -> i32 {
-        // parse RESOLUTION=WxH (case-insensitive) and return H
-        let lower = inf_line.to_ascii_lowercase();
-        if let Some(pos) = lower.find("resolution=") {
-            let after = &lower[pos + "resolution=".len()..];
-            let mut w = String::new();
-            let mut h = String::new();
-            let mut seen_x = false;
-            for ch in after.chars() {
-                if ch == ',' || ch == ' ' {
-                    break;
-                }
-                if ch == 'x' {
-                    seen_x = true;
-                    continue;
-                }
-                if ch.is_ascii_digit() {
-                    if !seen_x {
-                        w.push(ch);
-                    } else {
-                        h.push(ch);
-                    }
-                } else {
-                    break;
-                }
-            }
-            if let Ok(n) = h.parse::<i32>() {
-                return n;
-            }
-        }
-        0
-    }
-
-    fn play_video_in_mpv(&self, info: &(String, Option<String>)) -> Result<String, PlayError> {
-        let mut cmd = Command::new("mpv");
-
-        if let Some(referer) = &info.1 {
-            cmd.arg(format!("--referrer={}", referer));
-        }
-
-        let output = cmd.arg(&info.0).output().map_err(|e| {
-            if e.kind() == ErrorKind::NotFound {
-                PlayError::NotFound("mpv is not installed or not found in PATH".to_string())
-            } else {
-                PlayError::Other(format!("Error running mpv: \n{}", e))
-            }
-        })?;
-
-        let messy_stdout = String::from_utf8_lossy(&output.stdout);
-        let messy_stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = self.ansi_regex.replace_all(&messy_stdout, "").to_string();
-        let stderr = self.ansi_regex.replace_all(&messy_stderr, "").to_string();
-        let exit_code = output.status.code().unwrap_or(-1);
-        if !stderr.is_empty() && exit_code != 0 {
-            if stderr.contains("No results found!") {
-                return Err(PlayError::NoResults(stderr));
-            } else {
-                return Err(PlayError::CommandFailed {
-                    stderr,
-                    exit_code: output.status.code().unwrap_or(-1),
-                    stdout,
-                });
-            }
-        }
-
-        Ok(stdout)
+        Ok((url, referrer))
     }
 
     fn run_command(
@@ -751,22 +168,19 @@ impl AnimePlayer {
         anime: &Anime,
         episode: u32,
         url: Option<&(String, Option<String>)>,
+        result: Option<&PlayResult>,
     ) -> Result<(), String> {
         let cmd = command
             .replace("{title}", &escape(anime.title.clone().into()))
             .replace("{episode}", &escape(episode.to_string().into()))
-            .replace(
-                "{url}",
-                &escape(url.map(|u| u.0.as_str()).unwrap_or_default().into()),
-            )
-            .replace(
-                "{referer}",
-                &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()),
-            )
-            .replace(
-                "{referrer}",
-                &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()),
-            );
+            .replace("{url}", &escape(url.map(|u| u.0.as_str()).unwrap_or("").into()))
+            .replace("{referer}", &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()))
+            .replace("{referrer}", &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()))
+            .replace("{current_time}", &escape(result.map(|r| r.current_time.clone()).unwrap_or_default().into()))
+            .replace("{total_time}", &escape(result.map(|r| r.total_time.clone()).unwrap_or_default().into()))
+            .replace("{percentage}", &escape(result.map(|r| r.percentage.to_string()).unwrap_or_default().into()))
+            .replace("{is_completed}", &escape(result.map(|r| r.is_completed.to_string()).unwrap_or_default().into()))
+            .replace("{fully_watched}", &escape(result.map(|r| r.fully_watched.to_string()).unwrap_or_default().into()));
 
         #[cfg(unix)]
         let status = Command::new("sh")
@@ -788,4 +202,9 @@ impl AnimePlayer {
 
         Ok(())
     }
+}
+
+fn is_in_path(name: &str) -> bool {
+    let Ok(path) = std::env::var("PATH") else { return false; };
+    path.split(':').any(|dir| std::path::Path::new(dir).join(name).is_file())
 }

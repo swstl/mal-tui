@@ -1,7 +1,20 @@
 [package]
 name = "mal-tui"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2024"
+default-run = "mal-tui"
+
+[[bin]]
+name = "mal-tui"
+path = "src/main.rs"
+
+[[bin]]
+name = "fzf"
+path = "src/player/fzf.rs"
+
+[[bin]]
+name = "mpv"
+path = "src/player/mpv.rs"
 
 [dependencies]
 anyhow = "1.0.97"
