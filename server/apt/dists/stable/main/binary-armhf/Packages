@@ -1,11 +1,11 @@
 Package: mal-tui
-Version: 1.1.5
+Version: 1.1.6
 Architecture: armhf
 Maintainer: swstl <swstl@hotmail.com>
-Filename: pool/armhf/mal-tui_1.1.5_armhf.deb
-Size: 5213876
-MD5sum: e44b0bdde47f912fa9cabaaf52d2d371
-SHA1: 5bcc8a0500c9826a2865245d2d382e69e2d67695
-SHA256: fa2e7f3bf511eb0c37e68fd3dee13f8fdc2d7149c5520b1c7244a6004d28d306
+Filename: pool/armhf/mal-tui_1.1.6_armhf.deb
+Size: 5228146
+MD5sum: 1d27bb026f2382dacd3a653ed6a52812
+SHA1: bda57c7f77a887fd5ae2079b004f0cab43908c7e
+SHA256: 31be0551e5e3aa93e172cc601656b2fb8a3996d1e4bed2ca6f544aee2235953a
 Description: A terminal client for MyAnimeList
 
