@@ -8,6 +8,10 @@ pub use self::video_player::PlayError;
 pub use self::video_player::PlayResult;
 
 use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// set by the -d / --dub cli flag, overrides the `dub` config for this run
+pub static DUB: AtomicBool = AtomicBool::new(false);
 use std::{process::{Command, Stdio}};
 use shell_escape::escape;
 
@@ -159,7 +163,11 @@ impl AnimePlayer {
         }
         let new_path = format!("{}:{}", shim_dir.display(), std::env::var("PATH").unwrap_or_default());
 
-        let mut child = Command::new("ani-cli")
+        let mut command = Command::new("ani-cli");
+        if DUB.load(Ordering::Relaxed) || Config::global().dub.unwrap_or(false) {
+            command.arg("--dub");
+        }
+        let mut child = command
             .env("PATH", new_path)
             .env("ANICLI_TARGET", &anime.title)
             .arg("--no-detach")

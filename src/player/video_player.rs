@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::mal::models::anime::Anime;
 use std::{io::ErrorKind, process::Command};
 use regex::Regex;
@@ -55,6 +56,10 @@ impl VideoPlayer {
 
     pub fn launch_mpv(&self, mpv_args: &[String]) -> Result<String, PlayError> {
         let mut cmd = Command::new("mpv");
+        // subtitles stay loaded, so they can still be turned on in mpv (v / j)
+        if !Config::global().subtitles.unwrap_or(true) {
+            cmd.arg("--sid=no");
+        }
 
         let output = cmd.args(mpv_args).output().map_err(|e| {
             if e.kind() == ErrorKind::NotFound {

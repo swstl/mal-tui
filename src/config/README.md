@@ -13,6 +13,10 @@ To reset to default settings, simply delete the config file. mal-tui will automa
 allow_nsfw = false
 # show titles in romaji (MAL's main title) instead of English
 prefer_romaji = false
+# play dubbed episodes, same as starting with `mal-tui --dub`
+dub = false
+# show subtitles, for both sub and dub (as long as the subtitles aren't embedded in the video)
+subtitles = true
 
 [navigation]
 nav_up = ["Up", { Char = "k" }]

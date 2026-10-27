@@ -25,6 +25,9 @@ fn parse_cli() -> bool {
             "-c" | "--config-path" => {
                 return true;
             }
+            "-d" | "--dub" => {
+                player::DUB.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             "-h" | "--help" => {
                 println!("Usage: mal-tui [OPTIONS]");
                 println!();
@@ -32,6 +35,7 @@ fn parse_cli() -> bool {
                 println!("  -h, --help       Show this help message");
                 println!("  -v, --version    Show version information");
                 println!("  -e, --edit       Edit the configuration file");
+                println!("  -d, --dub        Play the dubbed version");
                 return true;
             }
             _ => {}
