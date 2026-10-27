@@ -446,6 +446,9 @@ pub trait Fetchable: Sized {
     ) -> Result<Self::Response, Box<dyn std::error::Error>>;
 
     fn from_response(response: Self::Response) -> Self::Output;
+
+    // runs after every successful fetch, e.g. to refresh rows kept in the local db
+    fn after_fetch(_output: &Self::Output, _database: &DatabaseManager) {}
 }
 
 pub trait Update: Sized + database::Entryable{

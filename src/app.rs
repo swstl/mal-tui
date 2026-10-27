@@ -181,7 +181,15 @@ impl App {
                     }
                     Event::BackgroundNotice(mut update) => {
                         if let Some(animes) = update.take::<Vec<Anime>>("animes") {
-                            self.shared_info.anime_store.add_bulk(animes);
+                            // anime already in the store take the fresh data, the same merge
+                            // refresh_stored writes to the local db
+                            for fresh in animes {
+                                if self.shared_info.anime_store.get(&fresh.id).is_some() {
+                                    self.shared_info.anime_store.update(fresh.id, |anime| anime.merge_fresh(fresh));
+                                } else {
+                                    self.shared_info.anime_store.add(fresh);
+                                }
+                            }
                         }
                         if let Some(sync_animes) = update.take::<Vec<Anime>>("sync") {
                             self.screen_manager.interactive_sync(sync_animes);
@@ -377,6 +385,17 @@ impl App {
                 handler(_sx);
             });
             self.threads.push(_thread);
+        }
+
+        // logged out the stored anime are only refreshed by the seasons they air in
+        if !MalClient::user_is_logged_in() {
+            let client = self.mal_client.clone();
+            let sx = self.sx.clone();
+            self.threads.push(thread::spawn(move || {
+                let animes = client.refresh_stored_seasons();
+                let update = BackgroundUpdate::new("stored-refresh").set("animes", animes);
+                sx.send(Event::BackgroundNotice(update)).ok();
+            }));
         }
     }
 }

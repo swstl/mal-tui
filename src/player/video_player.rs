@@ -45,22 +45,18 @@ impl VideoPlayer {
             exit_regex: Regex::new(r"Exiting\.\.\. \((.*?)\)").unwrap(),
         }
     }
-    pub fn play(&self, info: &(String, Option<String>), episode: u32) -> Result<PlayResult, PlayError> {
-        let play_info = self.launch_mpv(info)?;
+    pub fn play(&self, mpv_args: &[String], episode: u32) -> Result<PlayResult, PlayError> {
+        let play_info = self.launch_mpv(mpv_args)?;
         let result = self.extract_play_info(&play_info, episode).ok_or_else(|| {
             PlayError::Other("player did not return any play information".to_string())
         })?;
         Ok(result)
     }
 
-    pub fn launch_mpv(&self, info: &(String, Option<String>)) -> Result<String, PlayError> {
+    pub fn launch_mpv(&self, mpv_args: &[String]) -> Result<String, PlayError> {
         let mut cmd = Command::new("mpv");
 
-        if let Some(referer) = &info.1 {
-            cmd.arg(format!("--referrer={}", referer));
-        }
-
-        let output = cmd.arg(&info.0).output().map_err(|e| {
+        let output = cmd.args(mpv_args).output().map_err(|e| {
             if e.kind() == ErrorKind::NotFound {
                 PlayError::NotFound("mpv is not installed or not found in PATH".to_string())
             } else {

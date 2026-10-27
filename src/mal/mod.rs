@@ -5,7 +5,7 @@ mod oauth;
 use crate::config::Config;
 use crate::mal::network::{Fetchable, Identifier};
 use crate::{params, send_error};
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Duration, Local, Utc};
 use database::{DatabaseManager, Entryable};
 use models::anime::{Anime, AnimeId, FavoriteAnime, fields};
 use models::user::User;
@@ -13,7 +13,9 @@ use network::Update;
 pub use oauth::CLIENT_ID;
 use oauth::{Identity, refresh_token};
 use regex::Regex;
+use crate::utils::functionStreaming::StreamableRunner;
 use std::any::type_name;
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, thread::JoinHandle};
@@ -35,6 +37,10 @@ pub struct MalClient {
 
 impl MalClient {
     pub fn new(local_db: DatabaseManager) -> Self {
+        // fetches refresh stored anime from the start, so the table must exist
+        local_db.create_table::<Anime>().ok();
+        // dbs from before refreshed_at existed, errors once the column is there
+        local_db.execute("ALTER TABLE anime ADD COLUMN refreshed_at TEXT").ok();
         let client = Self {
             identity: Arc::new(RwLock::new(None)),
             re: Regex::new(r"\(([0-9,]+)/([0-9,]+|Unknown)\)").unwrap(),
@@ -208,6 +214,40 @@ impl MalClient {
         (year, season.to_string())
     }
 
+    // logged out nothing refetches the anime kept in the local db, so fetch the
+    // seasons they aired in: unfinished ones every start for their status, and
+    // ones that ended in the last 2 years once a week for their score.
+    // send_request writes the fresh data back to the db, the stored anime found
+    // are returned for the store
+    pub fn refresh_stored_seasons(&self) -> Vec<Anime> {
+        let now = Utc::now();
+        // dates are iso strings, so plain string comparison orders them
+        let ended_after = (now - Duration::days(2 * 365)).format("%Y-%m-%d").to_string();
+        let refreshed_before = (now - Duration::days(7)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let needs_refresh = |a: &Anime| {
+            a.status != "finished"
+                || (a.end_date >= ended_after
+                    && a.refreshed_at.as_ref().is_none_or(|at| *at < refreshed_before))
+        };
+
+        let stored = self.local_db.get::<Anime>(None).unwrap_or_default();
+        let ids: HashSet<AnimeId> = stored.iter().map(|a| a.id).collect();
+        let seasons: HashSet<(u16, String)> = stored
+            .iter()
+            .filter(|a| needs_refresh(a) && a.start_season.year != 0 && a.start_season.season != "na")
+            .map(|a| (a.start_season.year, a.start_season.season.to_lowercase()))
+            .collect();
+
+        let mut found = Vec::new();
+        for (year, season) in seasons {
+            let batches = StreamableRunner::new().with_batch_size(500).stop_early();
+            for batch in batches.run(|offset, limit| self.get_seasonal_anime(year, season.clone(), offset, limit)) {
+                found.extend(batch.into_iter().filter(|a| ids.contains(&a.id)));
+            }
+        }
+        found
+    }
+
     pub fn get_seasonal_anime(
         &self,
         year: u16,
@@ -314,7 +354,10 @@ impl MalClient {
             format!("{}/anime/{}", BASE_URL, id),
             params!["fields" => trimmed_fields],
         ) {
-            Ok(anime) => Some(anime),
+            Ok(anime) => {
+                Anime::refresh_stored(std::slice::from_ref(&anime), &self.local_db);
+                Some(anime)
+            }
             Err(e) => {
                 send_error!("Error fetching anime {}: {:?}", id, e);
                 None
@@ -491,6 +534,8 @@ impl MalClient {
                 return None;
             }
         };
-        Some(T::from_response(response))
+        let output = T::from_response(response);
+        T::after_fetch(&output, &self.local_db);
+        Some(output)
     }
 }

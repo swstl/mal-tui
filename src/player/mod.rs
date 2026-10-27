@@ -11,6 +11,11 @@ use std::io::{BufRead, BufReader};
 use std::{process::{Command, Stdio}};
 use shell_escape::escape;
 
+/// the video url is the last mpv argument that isn't a --flag
+fn mpv_url(args: &[String]) -> &str {
+    args.iter().rfind(|a| !a.starts_with("--")).map(|s| s.as_str()).unwrap_or("")
+}
+
 /// Strip ANSI/terminal control sequences from a string so it renders cleanly
 /// in the TUI error box. ani-cli colours its output (e.g. `die` uses red),
 /// and those raw escape bytes otherwise break ratatui's width/wrapping.
@@ -103,7 +108,7 @@ impl AnimePlayer {
 
         // hook
         if let Some(hook) = Config::global().player.pre_playback_hook.clone()
-            && let Err(e) = self.run_command(&hook, anime, episode, Some(&loc), None)
+            && let Err(e) = self.run_command(&hook, anime, episode, Some(loc.as_slice()), None)
         {
             eprintln!("Failed to run pre-playback hook: {}", e);
         };
@@ -123,7 +128,7 @@ impl AnimePlayer {
 
         // hook
         if let Some(hook) = Config::global().player.post_playback_hook.clone()
-            && let Err(e) = self.run_command(&hook, anime, episode, Some(&loc), Some(&result))
+            && let Err(e) = self.run_command(&hook, anime, episode, Some(loc.as_slice()), Some(&result))
         {
             eprintln!("Failed to run post-playback hook: {}", e);
         };
@@ -143,7 +148,7 @@ impl AnimePlayer {
         Ok(result)
     }
 
-    pub fn extract_url(&self, anime: &Anime, episode: u32) -> Result<(String, Option<String>), PlayError> {
+    pub fn extract_url(&self, anime: &Anime, episode: u32) -> Result<Vec<String>, PlayError> {
         let exe = std::env::current_exe().map_err(|e| PlayError::Other(e.to_string()))?;
         let shim_dir = std::env::temp_dir().join(format!("mal-tui-{}", std::process::id()));
         std::fs::create_dir_all(&shim_dir).map_err(|e| PlayError::Other(e.to_string()))?;
@@ -221,16 +226,14 @@ impl AnimePlayer {
                 ))
             })?;
 
-        let mut parts = marker.split('\t');
-        parts.next(); // skip the marker token
-        let url = parts.next().unwrap_or("").to_string();
-        let referrer = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
+        // skip the marker token, the rest is exactly what ani-cli passed to mpv
+        let mpv_args: Vec<String> = marker.split('\t').skip(1).map(|s| s.to_string()).collect();
 
-        if url.is_empty() {
+        if mpv_url(&mpv_args).is_empty() {
             return Err(PlayError::Other("ani-cli did not return a URL".to_string()));
         }
 
-        Ok((url, referrer))
+        Ok(mpv_args)
     }
 
     fn run_command(
@@ -238,15 +241,17 @@ impl AnimePlayer {
         command: &str,
         anime: &Anime,
         episode: u32,
-        url: Option<&(String, Option<String>)>,
+        mpv_args: Option<&[String]>,
         result: Option<&PlayResult>,
     ) -> Result<(), String> {
+        let url = mpv_args.map(mpv_url).unwrap_or("");
+        let referrer = mpv_args.and_then(|a| a.iter().find_map(|a| a.strip_prefix("--referrer="))).unwrap_or("");
         let cmd = command
             .replace("{title}", &escape(anime.title.clone().into()))
             .replace("{episode}", &escape(episode.to_string().into()))
-            .replace("{url}", &escape(url.map(|u| u.0.as_str()).unwrap_or("").into()))
-            .replace("{referer}", &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()))
-            .replace("{referrer}", &escape(url.and_then(|u| u.1.as_deref()).unwrap_or("").into()))
+            .replace("{url}", &escape(url.into()))
+            .replace("{referer}", &escape(referrer.into()))
+            .replace("{referrer}", &escape(referrer.into()))
             .replace("{current_time}", &escape(result.map(|r| r.current_time.clone()).unwrap_or_default().into()))
             .replace("{total_time}", &escape(result.map(|r| r.total_time.clone()).unwrap_or_default().into()))
             .replace("{percentage}", &escape(result.map(|r| r.percentage.to_string()).unwrap_or_default().into()))

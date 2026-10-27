@@ -1,4 +1,4 @@
-use crate::utils::imageManager::HasDisplayableImage; 
+use crate::utils::imageManager::HasDisplayableImage;
 use crate::utils::store::Storable;
 use crate::mal::network::fetch_favorited_anime;
 use crate::mal::network::fetch_anime;
@@ -343,6 +343,12 @@ pub struct Anime {
     /// If the number of episodes is decided  
     #[serde(default = "default_true")]
     pub episode_count_ready: bool,
+
+    /// When the local db row last took status and score from the api (local only).
+    /// Must stay the last field: rows are read by column index, and the
+    /// migration in MalClient::new appends this column at the end
+    #[serde(default)]
+    pub refreshed_at: Option<String>,
 }
 
 impl Anime {
@@ -382,6 +388,7 @@ impl Anime {
             studios: Vec::new(),
             statistics: Statistics::default(),
             episode_count_ready: false,
+            refreshed_at: None,
         }
     }
 
@@ -441,6 +448,7 @@ impl Anime {
             }],
             statistics: Statistics::default(),
             episode_count_ready: true,
+            refreshed_at: None,
         }
     }
 
@@ -697,6 +705,43 @@ impl Fetchable for Anime {
     fn from_response(response: Self::Response) -> Self::Output {
         Self::from_response(response)
     }
+
+    fn after_fetch(animes: &Self::Output, database: &DatabaseManager) {
+        Anime::refresh_stored(animes, database);
+    }
+}
+
+impl Anime {
+    // fresh api data wins. the user's own list entry only when mal's is newer:
+    // logged out the api sends none, and a local edit can be newer than mal's.
+    // both stamps are utc iso strings, so plain string comparison orders them
+    pub fn merge_fresh(&mut self, mut fresh: Anime) {
+        if fresh.my_list_status.updated_at <= self.my_list_status.updated_at {
+            fresh.my_list_status = std::mem::take(&mut self.my_list_status);
+        }
+        *self = fresh;
+    }
+
+    // anime already kept in the local db take the fresh api data. every column but
+    // id and my_list_status is written blindly: fields a response leaves out are
+    // never shown from the db, and a reset num_released_episodes just makes the
+    // popup scrape the episode count again
+    pub fn refresh_stored(animes: &[Anime], database: &DatabaseManager) {
+        let now = Some(Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        let animes: Vec<Anime> = animes
+            .iter()
+            .map(|anime| Anime { refreshed_at: now.clone(), ..anime.clone() })
+            .collect();
+        let columns: Vec<&str> = Anime::example(0)
+            .bind_values()
+            .into_iter()
+            .map(|(name, _)| name)
+            .filter(|name| !["id", "my_list_status"].contains(name))
+            .collect();
+        if let Err(e) = database.update_columns(&animes, &columns) {
+            crate::utils::errorBus::log_to_file(&format!("Failed to refresh stored anime: {}", e));
+        }
+    }
 }
 
 impl fmt::Display for Anime {
@@ -858,4 +903,3 @@ impl Storable for Anime {
         self.id
     }
 }
-

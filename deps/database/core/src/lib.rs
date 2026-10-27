@@ -122,6 +122,40 @@ impl DatabaseManager {
         Ok(())
     }
 
+    // run a raw statement, for one-off schema changes
+    pub fn execute(&self, sql: &str) -> Result<usize, Error> {
+        self.connection.lock().unwrap().execute(sql, [])
+    }
+
+    // update only `columns` of each object's row, in one transaction.
+    // objects without a stored row are skipped, other columns keep what is on disk
+    pub fn update_columns<T: Entryable>(&self, objs: &[T], columns: &[&str]) -> Result<(), Error> {
+        let mut connection = self.connection.lock().unwrap();
+        let transaction = connection.transaction()?;
+        let set_clauses: Vec<String> = columns.iter()
+            .map(|name| format!("{} = ?", name))
+            .collect();
+        let query = format!(
+            "UPDATE {} SET {} WHERE {} = ?",
+            T::table_name(),
+            set_clauses.join(", "),
+            T::p_key_column()
+        );
+        {
+            let mut statement = transaction.prepare(&query)?;
+            for obj in objs {
+                let bindings = obj.bind_values();
+                let mut values: Vec<rusqlite::types::Value> = columns.iter()
+                    .filter_map(|column| bindings.iter().find(|(name, _)| name == column))
+                    .map(|(_, value)| value.clone())
+                    .collect();
+                values.push(rusqlite::types::Value::Integer(obj.p_key() as i64));
+                statement.execute(rusqlite::params_from_iter(values))?;
+            }
+        }
+        transaction.commit()
+    }
+
     // delete
     pub fn delete<T: Entryable>(&self, obj: &T) -> Result<(), Error> {
         let connection = self.connection.lock().unwrap();

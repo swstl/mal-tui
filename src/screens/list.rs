@@ -597,22 +597,24 @@ impl Screen for ListScreen {
     }
 
     fn background(&mut self) -> Option<JoinHandle<()>> {
-        // let store_animes = self.app_info.anime_store.get_list();
-        // let new_ids: Vec<AnimeId> = store_animes
-        //     .iter()
-        //     .filter(|anime| {
-        //         !self.all_animes.contains(&anime.id)
-        //             && status_is_known(anime.my_list_status.status.clone())
-        //     })
-        //     .map(|anime| anime.id)
-        //     .collect();
-        //
-        // if !new_ids.is_empty() {
-        //     self.all_animes.extend(new_ids);
-        //     self.filtered_animes = self.all_animes.clone();
-        // }
-
         if self.bg_loaded {
+            // cached screen: rebuild the list from the store, which holds every
+            // add / remove / status change made on other screens since
+            let mut animes: Vec<Anime> = self.app_info.anime_store.get_list()
+                .iter()
+                .filter(|anime| status_is_known(anime.my_list_status.status.clone()))
+                .map(|rc| (**rc).clone())
+                .collect();
+            animes.sort_by(|a, b| b.my_list_status.updated_at.cmp(&a.my_list_status.updated_at));
+            let ids: Vec<AnimeId> = animes.iter().map(|a| a.id).collect();
+
+            // only re-filter when something changed, so the scroll position survives
+            if ids != self.all_animes {
+                self.all_animes = ids;
+                if let Some(sx) = &self.bg_sx {
+                    sx.send(LocalEvent::Dropdown(animes, self.filters.clone())).ok();
+                }
+            }
             return None;
         }
         let info = self.app_info.clone();
