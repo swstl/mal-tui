@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+    # a version bump in Cargo.toml releases it, see the setup job
+    branches:
+      - main
+    paths:
+      - Cargo.toml
   workflow_dispatch:
     inputs:
       update_release:
@@ -19,14 +24,34 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.release.outputs.release }}
     steps:
       - uses: actions/checkout@v4
       - name: Get version from Cargo.toml
         id: version
         run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)" >> $GITHUB_OUTPUT
 
+      # tag push: release. push to main: release only when that version has no tag yet,
+      # so Cargo.toml edits that aren't a version bump do nothing. manual run: update_release
+      - name: Should release
+        id: release
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE=${{ inputs.update_release }}
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            RELEASE=true
+          elif git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION is already released"
+            RELEASE=false
+          else
+            RELEASE=true
+          fi
+          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+
   build:
     needs: setup
+    if: needs.setup.outputs.release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -78,7 +103,7 @@ jobs:
 
   release:
     needs: [setup, build]
-    if: github.event_name == 'push' || inputs.update_release == true
+    if: needs.setup.outputs.release == 'true'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -124,6 +149,8 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: v${{ needs.setup.outputs.version }}
+          # on a version bump the tag doesn't exist yet and is created on this commit
+          target_commitish: ${{ github.sha }}
           name: v${{ needs.setup.outputs.version }}
           # only on a tag push: a manual update_release run keeps the existing notes
           body_path: ${{ github.event_name == 'push' && 'notes.md' || '' }}
@@ -144,7 +171,7 @@ jobs:
 
   update-aur:
     needs: [setup, release]
-    if: github.event_name == 'push' || inputs.update_release == true
+    if: needs.setup.outputs.release == 'true'
     runs-on: ubuntu-22.04
     steps:
       - name: Setup SSH for AUR
