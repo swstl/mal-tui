@@ -84,6 +84,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags + history for the release notes
+
+      - name: Release notes
+        run: |
+          # commits since the previous tag, without the apt repo bot commits
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          git log --invert-grep --grep='^update apt repo' --pretty='- %s' ${PREV:+$PREV..}HEAD > notes.md
+          cat notes.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -116,6 +125,8 @@ jobs:
         with:
           tag_name: v${{ needs.setup.outputs.version }}
           name: v${{ needs.setup.outputs.version }}
+          # only on a tag push: a manual update_release run keeps the existing notes
+          body_path: ${{ github.event_name == 'push' && 'notes.md' || '' }}
           files: |
             artifacts/linux-x86_64/mal-tui-linux-x86_64
             artifacts/linux-aarch64/mal-tui-linux-aarch64
