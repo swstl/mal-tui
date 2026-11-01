@@ -13,11 +13,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// set by the -d / --dub cli flag, overrides the `dub` config for this run
 pub static DUB: AtomicBool = AtomicBool::new(false);
 use std::{process::{Command, Stdio}};
+use regex::Regex;
 use shell_escape::escape;
 
 /// the video url is the last mpv argument that isn't a --flag
 fn mpv_url(args: &[String]) -> &str {
     args.iter().rfind(|a| !a.starts_with("--")).map(|s| s.as_str()).unwrap_or("")
+}
+
+/// the value of `--key=` in ani-cli's mpv arguments
+fn mpv_flag<'a>(args: Option<&'a [String]>, key: &str) -> Option<&'a str> {
+    let prefix = format!("--{}=", key);
+    args?.iter().find_map(|a| a.strip_prefix(prefix.as_str()))
 }
 
 /// Strip ANSI/terminal control sequences from a string so it renders cleanly
@@ -252,31 +259,39 @@ impl AnimePlayer {
         mpv_args: Option<&[String]>,
         result: Option<&PlayResult>,
     ) -> Result<(), String> {
-        let url = mpv_args.map(mpv_url).unwrap_or("");
-        let referrer = mpv_args.and_then(|a| a.iter().find_map(|a| a.strip_prefix("--referrer="))).unwrap_or("");
-        let cmd = command
-            .replace("{title}", &escape(anime.title.clone().into()))
-            .replace("{episode}", &escape(episode.to_string().into()))
-            .replace("{url}", &escape(url.into()))
-            .replace("{referer}", &escape(referrer.into()))
-            .replace("{referrer}", &escape(referrer.into()))
-            .replace("{current_time}", &escape(result.map(|r| r.current_time.clone()).unwrap_or_default().into()))
-            .replace("{total_time}", &escape(result.map(|r| r.total_time.clone()).unwrap_or_default().into()))
-            .replace("{percentage}", &escape(result.map(|r| r.percentage.to_string()).unwrap_or_default().into()))
-            .replace("{is_completed}", &escape(result.map(|r| r.is_completed.to_string()).unwrap_or_default().into()))
-            .replace("{fully_watched}", &escape(result.map(|r| r.fully_watched.to_string()).unwrap_or_default().into()));
+        // any other {key} is the value of --key= in ani-cli's mpv arguments. a key that
+        // isn't there stays as written, it may be shell syntax like awk's {print}
+        let key_regex = Regex::new(r"\{([a-z0-9_-]+)\}").unwrap();
+        let cmd = key_regex.replace_all(command, |caps: &regex::Captures| {
+            let value = match &caps[1] {
+                "title" => anime.title.clone(),
+                "episode" => episode.to_string(),
+                "url" => mpv_args.map(mpv_url).unwrap_or("").to_string(),
+                "referer" | "referrer" => mpv_flag(mpv_args, "referrer").unwrap_or("").to_string(),
+                "current_time" => result.map(|r| r.current_time.clone()).unwrap_or_default(),
+                "total_time" => result.map(|r| r.total_time.clone()).unwrap_or_default(),
+                "percentage" => result.map(|r| r.percentage.to_string()).unwrap_or_default(),
+                "is_completed" => result.map(|r| r.is_completed.to_string()).unwrap_or_default(),
+                "fully_watched" => result.map(|r| r.fully_watched.to_string()).unwrap_or_default(),
+                key => match mpv_flag(mpv_args, key) {
+                    Some(value) => value.to_string(),
+                    None => return caps[0].to_string(),
+                },
+            };
+            escape(value.into()).to_string()
+        });
 
         #[cfg(unix)]
         let status = Command::new("sh")
             .arg("-c")
-            .arg(&cmd)
+            .arg(cmd.as_ref())
             .status()
             .map_err(|e| format!("Failed to run hook: {}", e))?;
 
         #[cfg(windows)]
         let status = Command::new("cmd")
             .arg("/C")
-            .arg(&cmd)
+            .arg(cmd.as_ref())
             .status()
             .map_err(|e| format!("Failed to run hook: {}", e))?;
 

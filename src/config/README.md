@@ -102,6 +102,7 @@ Runs **after** ani-cli has resolved the video URL but **before** mpv starts play
 - `{episode}` - Episode number
 - `{url}` - Direct video URL
 - `{referrer}` - Referrer header (may be empty)
+- `{any-mpv-flag}` - The value of `--any-mpv-flag=` that ani-cli passed to mpv, e.g. `{sub-file}`, `{audio-file}`. Left as written if ani-cli didn't pass it
 
 **Example:**
 ```toml
@@ -116,6 +117,7 @@ Runs **after** the episode is watched (when mpv closes), with full playback info
 - `{episode}` - Episode number
 - `{url}` - Direct video URL
 - `{referrer}` - Referrer header (may be empty)
+- `{any-mpv-flag}` - The value of `--any-mpv-flag=` that ani-cli passed to mpv, e.g. `{sub-file}`, `{audio-file}`. Left as written if ani-cli didn't pass it
 - `{current_time}` - Where the user stopped (e.g. `00:12:34`)
 - `{total_time}` - Total length of the episode (e.g. `00:24:15`)
 - `{percentage}` - Watched percentage (`0`-`100`)
@@ -142,7 +144,7 @@ If you want to use your own video player:
 2. Add a `post_playback_hook` that opens your preferred player:
    ```toml
    disable_default_player = true
-   post_playback_hook = "mpv {url} --referrer={referrer}"
+   post_playback_hook = "mpv {url} --referrer={referrer} --sub-file={sub-file}"
    ```
 
 **Note:** When `disable_default_player = true`, the `post_playback_hook` runs immediately after fetching the video URL (not after watching).
